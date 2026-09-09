@@ -791,11 +791,11 @@ class VideoDetailController extends GetxController
     queryVideoUrl(fromReset: true);
   }
 
-  Future<LoadingState<PlayUrlModel>> _getVideoUrl(int quality) {
+  Future<LoadingState<PlayUrlModel>> _getVideoUrl(int quality) async {
     if (Pref.unlockHighQuality &&
         (_actualVideoType ?? videoType) == VideoType.ugc &&
         aid > 0) {
-      return PlayerUniteGrpc.playViewUnite(
+      final res = await PlayerUniteGrpc.playViewUnite(
         aid: aid,
         cid: cid.value,
         qn: quality,
@@ -807,6 +807,13 @@ class VideoDetailController extends GetxController
           _ => 2,
         },
       );
+      if (res case Success()) {
+        return res;
+      }
+      // gRPC 取流失败时回退到 web 接口，避免开关打开后完全无法播放
+      if (kDebugMode) {
+        debugPrint('playViewUnite failed: ${res is Error ? res.errMsg : res}');
+      }
     }
     return VideoHttp.videoUrl(
       cid: cid.value,
