@@ -5,6 +5,7 @@ import 'dart:math' show max, min;
 import 'dart:ui' as ui;
 
 import 'package:PiliPlus/common/assets.dart';
+import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -815,6 +816,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
       audioFilterExtras(volume, map: extras);
     }
+
+    // app 接口下发的流（platform=android）要求 App 系 UA 且不能带 Referer；
+    // web 接口（platform=pc）要求浏览器 UA + Referer。不匹配时 CDN 直接 403
+    final isAppStream = video.contains('platform=android');
+    player.setMediaHeader(
+      userAgent: isAppStream ? Constants.userAgentApp : BrowserUa.pc,
+      referer: isAppStream ? '' : HttpString.baseUrl,
+    );
 
     assert(!isLive || seekTo == null);
     await player.open(
