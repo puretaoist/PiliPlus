@@ -850,6 +850,18 @@ class VideoDetailController extends GetxController
     final buf = StringBuffer()
       ..writeln('视频流=${videos.length} 音频流=${model.dash?.audio?.length ?? 0}')
       ..writeln('acceptQuality=${model.acceptQuality}');
+    // 诊断：再用 bbspace 播放路径的原始参数请求一次，对比服务端返回的档位
+    final alt = await PlayerUniteGrpc.playViewUnite(
+      aid: aid,
+      cid: cid.value,
+      qn: 80,
+      fnval: 272,
+      needTrial: true,
+      bvid: bvid,
+    );
+    buf.writeln(
+      '另一组(qn=80,fnval=272,trial): ${alt.dataOrNull?.acceptQuality}',
+    );
     final url = videos.first.playUrls.first;
     buf.writeln('完整URL: $url');
     var reachable = false;
