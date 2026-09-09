@@ -1,5 +1,6 @@
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/pages/rcmd/controller.dart';
+import 'package:PiliPlus/pages/recommend_label/view.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/utils/recommend_filter.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -61,6 +62,12 @@ List<SettingsModel> get recommendSettings => [
         if (kDebugMode) debugPrint('$e');
       }
     },
+  ),
+  NormalModel(
+    title: '内容偏好调节',
+    subtitle: '管理首页推荐的内容偏好标签，与官方账号互通',
+    leading: const Icon(Icons.interests_outlined),
+    onTap: (_, _) => Get.to(const RecommendLabelPage()),
   ),
   getVideoFilterSelectModel(
     title: '点赞率',
