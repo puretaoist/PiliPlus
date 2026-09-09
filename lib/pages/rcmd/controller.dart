@@ -95,7 +95,10 @@ class RcmdController extends CommonListController {
 
   @override
   bool handleError(String? errMsg) {
-    return enableSaveLastData;
+    // enableSaveLastData 的语义是"失败时保留旧数据"；
+    // 但首次加载/无旧数据时吞掉错误会让首页永远空白，此时应显示错误
+    final hasData = loadingState.value.dataOrNull?.isNotEmpty == true;
+    return enableSaveLastData && hasData;
   }
 
   @override

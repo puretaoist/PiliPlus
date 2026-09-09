@@ -162,25 +162,38 @@ abstract final class VideoHttp {
       ),
     );
     if (res.data['code'] == 0) {
+      final data = res.data['data'];
+      final items = data is Map ? data['items'] : null;
+      if (items is! List || items.isEmpty) {
+        // code=0 但列表为空：多为服务端风控/参数问题，带上结构信息便于定位
+        return Error('推荐列表为空（items=${items.runtimeType}）');
+      }
       final list = <RcmdVideoItemAppModel>[];
-      for (final i in res.data['data']['items']) {
-        // 屏蔽推广和拉黑用户
-        if (i['card_goto'] != 'ad_av' &&
-            i['card_goto'] != 'ad_web_s' &&
-            i['ad_info'] == null &&
-            i['can_play'] == 1 &&
-            (i['args'] != null &&
-                !GlobalData().blackMids.contains(i['args']['up_id']))) {
-          if (enableFilter &&
-              i['args']?['tname'] != null &&
-              zoneRegExp.hasMatch(i['args']['tname'])) {
-            continue;
-          }
-          RcmdVideoItemAppModel videoItem = RcmdVideoItemAppModel.fromJson(i);
-          if (!RecommendFilter.filter(videoItem)) {
-            list.add(videoItem);
+      try {
+        for (final i in items.whereType<Map>()) {
+          // 屏蔽推广和拉黑用户
+          if (i['card_goto'] != 'ad_av' &&
+              i['card_goto'] != 'ad_web_s' &&
+              i['ad_info'] == null &&
+              i['can_play'] == 1 &&
+              (i['args'] != null &&
+                  !GlobalData().blackMids.contains(i['args']['up_id']))) {
+            if (enableFilter &&
+                i['args']?['tname'] != null &&
+                zoneRegExp.hasMatch(i['args']['tname'])) {
+              continue;
+            }
+            RcmdVideoItemAppModel videoItem = RcmdVideoItemAppModel.fromJson(
+              i.cast<String, dynamic>(),
+            );
+            if (!RecommendFilter.filter(videoItem)) {
+              list.add(videoItem);
+            }
           }
         }
+      } catch (e) {
+        // 单条脏数据/结构变化不应让首页崩溃，转成可见错误
+        return Error('推荐解析异常: $e');
       }
       return Success(list);
     } else {
