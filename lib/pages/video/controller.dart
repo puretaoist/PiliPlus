@@ -68,7 +68,7 @@ import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:collection/collection.dart';
-import 'package:dio/dio.dart' show Options;
+import 'package:dio/dio.dart' show Options, ResponseType;
 import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart'
     show ExtendedNestedScrollViewState;
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -811,11 +811,8 @@ class VideoDetailController extends GetxController
         onTimeout: () => const Error('取流超时（10 秒无响应）'),
       );
       if (res case Success(:final response)) {
-        // 临时诊断：确认 gRPC 取流是否成功、服务端给了哪些画质
-        SmartDialog.showToast(
-          '4K取流成功：${response.dash?.video?.length ?? 0} 条流 '
-          '画质=${response.dash?.video?.availableVideoQualities ?? const {}}',
-        );
+        // 临时诊断：确认流信息与首条流的可达性
+        unawaited(_showGrpcDiag(response));
         return res;
       }
       // gRPC 取流失败时回退到 web 接口，避免开关打开后完全无法播放
@@ -835,6 +832,49 @@ class VideoDetailController extends GetxController
       videoType: _actualVideoType ?? videoType,
       language: currLang.value,
       voiceBalance: plPlayerController.enableAudioNormalization,
+    );
+  }
+
+  // 临时诊断：gRPC 取流结果 + 首条流的可达性
+  Future<void> _showGrpcDiag(PlayUrlModel model) async {
+    final videos = model.dash?.video ?? const <VideoItem>[];
+    final buf = StringBuffer()
+      ..writeln('视频流=${videos.length} 音频流=${model.dash?.audio?.length ?? 0}')
+      ..writeln('acceptQuality=${model.acceptQuality}');
+    for (final v in videos.take(6)) {
+      final url = v.baseUrl ?? '';
+      buf.writeln(
+        'q=${v.id} codec=${v.codecs} codecid=${v.codecid} '
+        '${v.width}x${v.height} rate=${v.frameRate} '
+        'host=${Uri.tryParse(url)?.host} '
+        'url=${url.substring(0, min(50, url.length))}',
+      );
+    }
+    if (videos.isNotEmpty) {
+      try {
+        final r = await Request().get(
+          videos.first.playUrls.first,
+          options: Options(
+            responseType: ResponseType.bytes,
+            headers: {'range': 'bytes=0-2047'},
+            validateStatus: (s) => true,
+          ),
+        );
+        buf.writeln(
+          '首条流 HTTP=${r.statusCode} bytes=${(r.data as List?)?.length}',
+        );
+      } catch (e) {
+        buf.writeln('首条流请求异常: $e');
+      }
+    }
+    SmartDialog.show(
+      builder: (context) => AlertDialog(
+        title: const Text('4K 取流诊断'),
+        content: SingleChildScrollView(child: SelectableText(buf.toString())),
+        actions: [
+          TextButton(onPressed: SmartDialog.dismiss, child: const Text('关闭')),
+        ],
+      ),
     );
   }
 
