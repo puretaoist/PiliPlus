@@ -813,9 +813,12 @@ class VideoDetailController extends GetxController
         onTimeout: () => const Error('取流超时（10 秒无响应）'),
       );
       if (res case Success(:final response)) {
-        // 临时诊断：确认流信息与首条流的可达性
-        unawaited(_showGrpcDiag(response));
-        return res;
+        // 探测首条流是否真的能拉：app 接口的 URL 有时会被 CDN 拒绝，
+        // 拉不通就回退到 web 接口，保证视频至少能播
+        if (await _probeGrpcStream(response)) {
+          return res;
+        }
+        SmartDialog.showToast('4K 流不可用，已回退到默认接口');
       }
       // gRPC 取流失败时回退到 web 接口，避免开关打开后完全无法播放
       final errMsg = res is Error ? res.errMsg : null;
@@ -837,55 +840,47 @@ class VideoDetailController extends GetxController
     );
   }
 
-  // 临时诊断：gRPC 取流结果 + 首条流的可达性
-  Future<void> _showGrpcDiag(PlayUrlModel model) async {
+  // 临时诊断 + 可用性探测：返回 true 表示首条流能拉通
+  Future<bool> _probeGrpcStream(PlayUrlModel model) async {
     final videos = model.dash?.video ?? const <VideoItem>[];
+    if (videos.isEmpty) {
+      return false;
+    }
     final buf = StringBuffer()
       ..writeln('视频流=${videos.length} 音频流=${model.dash?.audio?.length ?? 0}')
       ..writeln('acceptQuality=${model.acceptQuality}');
-    for (final v in videos.take(6)) {
-      final url = v.baseUrl ?? '';
-      buf.writeln(
-        'q=${v.id} codec=${v.codecs} codecid=${v.codecid} '
-        '${v.width}x${v.height} rate=${v.frameRate} '
-        'host=${Uri.tryParse(url)?.host} '
-        'url=${url.substring(0, min(50, url.length))}',
-      );
-    }
-    if (videos.isNotEmpty) {
-      final url = videos.first.playUrls.first;
-      for (final (label, ua) in <(String, String)>[
-        ('播放器UA', BrowserUa.pc),
-        ('AppUA', Constants.userAgent),
-        ('默认UA', ''),
-      ]) {
-        try {
-          final r = await Request().get(
-            url,
-            options: Options(
-              responseType: ResponseType.bytes,
-              headers: {
-                'range': 'bytes=0-2047',
-                'referer': 'https://www.bilibili.com',
-                if (ua.isNotEmpty) 'user-agent': ua,
-              },
-              validateStatus: (s) => true,
-            ),
-          );
-          final data = r.data as List?;
-          var snippet = '';
-          if (data != null && data.isNotEmpty) {
-            snippet = utf8
-                .decode(data.take(200).cast<int>().toList(),
-                    allowMalformed: true)
-                .replaceAll(RegExp(r'\s+'), ' ');
-          }
-          buf.writeln(
-            '$label: HTTP=${r.statusCode} len=${data?.length} $snippet',
-          );
-        } catch (e) {
-          buf.writeln('$label: 异常 $e');
+    final url = videos.first.playUrls.first;
+    buf.writeln('完整URL: $url');
+    var reachable = false;
+    for (final (label, ua) in <(String, String)>[
+      ('播放器UA', BrowserUa.pc),
+      ('AppUA', Constants.userAgent),
+    ]) {
+      try {
+        final r = await Request().get(
+          url,
+          options: Options(
+            responseType: ResponseType.bytes,
+            headers: {
+              'range': 'bytes=0-2047',
+              'referer': 'https://www.bilibili.com',
+              'user-agent': ua,
+            },
+            validateStatus: (s) => true,
+          ),
+        );
+        final data = r.data as List?;
+        var extra = '';
+        if (data != null && data.isNotEmpty) {
+          extra =
+              ' body=${utf8.decode(data.take(120).cast<int>().toList(), allowMalformed: true).replaceAll(RegExp(r'\s+'), ' ')}';
         }
+        buf.writeln('$label: HTTP=${r.statusCode} len=${data?.length}$extra');
+        if (r.statusCode == 200 || r.statusCode == 206) {
+          reachable = true;
+        }
+      } catch (e) {
+        buf.writeln('$label: 异常 $e');
       }
     }
     SmartDialog.show(
@@ -897,6 +892,7 @@ class VideoDetailController extends GetxController
         ],
       ),
     );
+    return reachable;
   }
 
   Future<void> _supplementVideoQualities() async {
