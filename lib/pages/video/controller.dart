@@ -816,6 +816,8 @@ class VideoDetailController extends GetxController
         // 探测首条流是否真的能拉：app 接口的 URL 有时会被 CDN 拒绝，
         // 拉不通就回退到 web 接口，保证视频至少能播
         if (await _probeGrpcStream(response)) {
+          // 标记来源，播放器据此决定 UA/Referer（app 流不能带 Referer）
+          plPlayerController.appStreamHeaders = true;
           return res;
         }
         // 拉不通多为 CDN 地域/临时策略，静默回退即可，不必每次进视频都弹提示
@@ -835,18 +837,21 @@ class VideoDetailController extends GetxController
     return _webVideoUrl(quality);
   }
 
-  Future<LoadingState<PlayUrlModel>> _webVideoUrl(int quality) =>
-      VideoHttp.videoUrl(
-        cid: cid.value,
-        bvid: bvid,
-        qn: quality,
-        epid: epId,
-        seasonId: seasonId,
-        tryLook: plPlayerController.tryLook,
-        videoType: _actualVideoType ?? videoType,
-        language: currLang.value,
-        voiceBalance: plPlayerController.enableAudioNormalization,
-      );
+  Future<LoadingState<PlayUrlModel>> _webVideoUrl(int quality) {
+    // 走 web 接口 = web 流，播放器恢复浏览器 UA + Referer
+    plPlayerController.appStreamHeaders = false;
+    return VideoHttp.videoUrl(
+      cid: cid.value,
+      bvid: bvid,
+      qn: quality,
+      epid: epId,
+      seasonId: seasonId,
+      tryLook: plPlayerController.tryLook,
+      videoType: _actualVideoType ?? videoType,
+      language: currLang.value,
+      voiceBalance: plPlayerController.enableAudioNormalization,
+    );
+  }
 
   /// 探测用 Dio：必须是**不带任何拦截器**的独立实例。
   ///
@@ -872,29 +877,31 @@ class VideoDetailController extends GetxController
     if (videos.isEmpty) {
       return false;
     }
-    // 只试前两档（列表按画质从高到低），兼顾准确性与起播速度
+    // 只试前两档（列表按画质从高到低），兼顾准确性与起播速度。
+    // 必须探测"实际会播的那个 URL"：默认 CDN 是 backupUrl，getCdnUrl 选出的
+    // 未必是 playUrls.first，探测错对象会误判成不可用
     for (final item in videos.take(2)) {
-      for (final url in item.playUrls.take(2)) {
-        try {
-          final r = await _probeDio.get(
-            url,
-            options: Options(
-              headers: {
-                'user-agent': Constants.userAgentApp,
-                'range': 'bytes=0-2047',
-              },
-            ),
-          );
-          if (r.statusCode == 200 || r.statusCode == 206) {
-            return true;
-          }
-          if (kDebugMode) {
-            debugPrint('probe stream ${r.statusCode}: $url');
-          }
-        } catch (e) {
-          if (kDebugMode) {
-            debugPrint('probe stream error: $e');
-          }
+      final url = VideoUtils.getCdnUrl(item.playUrls);
+      if (url.isEmpty) continue;
+      try {
+        final r = await _probeDio.get(
+          url,
+          options: Options(
+            headers: {
+              'user-agent': Constants.userAgentApp,
+              'range': 'bytes=0-2047',
+            },
+          ),
+        );
+        if (r.statusCode == 200 || r.statusCode == 206) {
+          return true;
+        }
+        if (kDebugMode) {
+          debugPrint('probe stream ${r.statusCode}: $url');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('probe stream error: $e');
         }
       }
     }

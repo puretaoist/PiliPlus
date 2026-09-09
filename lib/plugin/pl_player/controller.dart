@@ -150,6 +150,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   late DataSource dataSource;
 
+  /// 本次流是否来自 app 接口（gRPC）。
+  ///
+  /// app 流要求 App 系 UA 且**不能**带 Referer，否则 CDN 直接 403；web 流则相反。
+  /// 这里由取流侧显式标记，不靠 URL 里的 platform 参数猜——app 下发的 URL 并不保证
+  /// 带 `platform=android`（bbspace 也只用 "platform=pc" 反判 web 流，其余按 app 流处理）。
+  bool appStreamHeaders = false;
+
   Timer? _timer;
   StreamSubscription? _subForSeek;
 
@@ -817,9 +824,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       audioFilterExtras(volume, map: extras);
     }
 
-    // app 接口下发的流（platform=android）要求 App 系 UA 且不能带 Referer；
-    // web 接口（platform=pc）要求浏览器 UA + Referer。不匹配时 CDN 直接 403
-    final isAppStream = video.contains('platform=android');
+    // app 流要求 App 系 UA 且不能带 Referer；
+    // web 接口（platform=pc）要求浏览器 UA + Referer。不匹配时 CDN 直接 403。
+    // 以取流侧的显式标记为准，URL 里的 platform 参数只作兜底
+    final isAppStream = appStreamHeaders || video.contains('platform=android');
     player.setMediaHeader(
       userAgent: isAppStream ? Constants.userAgentApp : BrowserUa.pc,
       referer: isAppStream ? '' : HttpString.baseUrl,
