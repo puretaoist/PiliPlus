@@ -13,24 +13,30 @@ class RecommendLabelResponse {
 
   RecommendLabelResponse.fromJson(Map<String, dynamic> json)
     : labels = (json['labels'] as List? ?? const [])
-          .map((e) => RecLabel.fromJson(e))
+          .whereType<Map>()
+          .map((e) => RecLabel.fromJson(e.cast<String, dynamic>()))
           .toList(),
       allLabels = (json['all_labels'] as List? ?? const [])
-          .map((e) => RecLabelArea.fromJson(e))
+          .whereType<Map>()
+          .map((e) => RecLabelArea.fromJson(e.cast<String, dynamic>()))
           .toList(),
-      pageMaterial = json['uinterest_page_material'] == null
-          ? null
-          : RecLabelPageMaterial.fromJson(json['uinterest_page_material']),
-      mngPageMaterial = json['uinterest_mng_page_material'] == null
-          ? null
-          : RecLabelMngPageMaterial.fromJson(
-              json['uinterest_mng_page_material'],
-            ),
-      distributionMaterial = json['uinterest_distribution_material'] == null
-          ? null
-          : RecLabelDistributionMaterial.fromJson(
-              json['uinterest_distribution_material'],
-            );
+      pageMaterial = json['uinterest_page_material'] is Map
+          ? RecLabelPageMaterial.fromJson(
+              (json['uinterest_page_material'] as Map).cast<String, dynamic>(),
+            )
+          : null,
+      mngPageMaterial = json['uinterest_mng_page_material'] is Map
+          ? RecLabelMngPageMaterial.fromJson(
+              (json['uinterest_mng_page_material'] as Map)
+                  .cast<String, dynamic>(),
+            )
+          : null,
+      distributionMaterial = json['uinterest_distribution_material'] is Map
+          ? RecLabelDistributionMaterial.fromJson(
+              (json['uinterest_distribution_material'] as Map)
+                  .cast<String, dynamic>(),
+            )
+          : null;
 }
 
 /// 单个偏好标签；标签以字符串名（name）为唯一凭据，读写都传 name

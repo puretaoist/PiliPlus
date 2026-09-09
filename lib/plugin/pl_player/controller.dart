@@ -1509,11 +1509,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     Future<void> send() {
       final ctx = reportContext;
       if (ctx != null && (videoType ?? _videoType) == VideoType.ugc) {
-        return VideoHttp.mobileHeartBeat(
-          ctx,
-          progress,
-          completed: type == HeartBeatType.completed || progress < 0,
-        );
+        final isEnd = type == HeartBeatType.completed || progress < 0;
+        // position 每秒变化都会走到这里；官方移动端心跳是长间隔（约 60s），
+        // 每秒打一次会被风控且费电。非结束状态按间隔节流，进度只在内存累积
+        final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        if (!isEnd && ctx.lastReportTs != 0 && now - ctx.lastReportTs < 60) {
+          ctx.updateProgress(progress);
+          return Future.value();
+        }
+        return VideoHttp.mobileHeartBeat(ctx, progress, completed: isEnd);
       }
       return VideoHttp.heartBeat(
         aid: aid ?? _aid,

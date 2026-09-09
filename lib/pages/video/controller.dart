@@ -866,8 +866,8 @@ class VideoDetailController extends GetxController
   /// App 系 UA、不带 Referer、不带 cookie。
   static final Dio _probeDio = Dio(
     BaseOptions(
-      connectTimeout: const Duration(seconds: 8),
-      receiveTimeout: const Duration(seconds: 8),
+      connectTimeout: const Duration(seconds: 5),
+      receiveTimeout: const Duration(seconds: 5),
       responseType: ResponseType.bytes,
       // 403/404 等交给调用方按状态码判断，不抛异常
       validateStatus: (status) => status != null && status < 500,
@@ -881,32 +881,39 @@ class VideoDetailController extends GetxController
     if (videos.isEmpty) {
       return false;
     }
-    // 只试前两档（列表按画质从高到低），兼顾准确性与起播速度。
+    // 只试前两档（列表按画质从高到低），两档并行探测，任一可拉即认为可用；
     // 必须探测"实际会播的那个 URL"：默认 CDN 是 backupUrl，getCdnUrl 选出的
     // 未必是 playUrls.first，探测错对象会误判成不可用
-    for (final item in videos.take(2)) {
-      final url = VideoUtils.getCdnUrl(item.playUrls);
-      if (url.isEmpty) continue;
-      try {
-        final r = await _probeDio.get(
-          url,
-          options: Options(
-            headers: {
-              'user-agent': Constants.userAgentApp,
-              'range': 'bytes=0-2047',
-            },
-          ),
-        );
-        if (r.statusCode == 200 || r.statusCode == 206) {
-          return true;
-        }
-        if (kDebugMode) {
-          debugPrint('probe stream ${r.statusCode}: $url');
-        }
-      } catch (e) {
-        if (kDebugMode) {
-          debugPrint('probe stream error: $e');
-        }
+    final urls = videos
+        .take(2)
+        .map((item) => VideoUtils.getCdnUrl(item.playUrls))
+        .where((url) => url.isNotEmpty)
+        .toList();
+    if (urls.isEmpty) return false;
+    final results = await Future.wait(urls.map(_probeUrl));
+    return results.contains(true);
+  }
+
+  Future<bool> _probeUrl(String url) async {
+    try {
+      final r = await _probeDio.get(
+        url,
+        options: Options(
+          headers: {
+            'user-agent': Constants.userAgentApp,
+            'range': 'bytes=0-2047',
+          },
+        ),
+      );
+      if (r.statusCode == 200 || r.statusCode == 206) {
+        return true;
+      }
+      if (kDebugMode) {
+        debugPrint('probe stream ${r.statusCode}: $url');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('probe stream error: $e');
       }
     }
     return false;

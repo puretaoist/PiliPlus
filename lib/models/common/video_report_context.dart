@@ -33,6 +33,10 @@ class VideoReportContext {
   /// 会话内最大播放进度（秒）
   int maxProgress = 0;
 
+  /// 上次心跳上报的 unix 秒。position 每秒变化都会触发心跳调用，
+  /// 这里由发送方节流到官方节奏（约 60s 一次），避免高频请求触发风控
+  int lastReportTs = 0;
+
   VideoReportContext({
     required this.aid,
     required this.cid,

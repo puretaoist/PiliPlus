@@ -780,6 +780,7 @@ abstract final class VideoHttp {
     final total = (now - ctx.startTs).clamp(0, 1 << 30);
     final progressSec = completed ? ctx.videoDuration : progress;
     ctx.updateProgress(progressSec);
+    ctx.lastReportTs = now;
     final account = Accounts.get(AccountType.main);
     final params = <String, dynamic>{
       'session': ctx.session,
