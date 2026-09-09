@@ -806,8 +806,16 @@ class VideoDetailController extends GetxController
           VideoDecodeFormatType.AV1 => 3,
           _ => 2,
         },
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => const Error('取流超时（10 秒无响应）'),
       );
-      if (res case Success()) {
+      if (res case Success(:final response)) {
+        // 临时诊断：确认 gRPC 取流是否成功、服务端给了哪些画质
+        SmartDialog.showToast(
+          '4K取流成功：${response.dash?.video?.length ?? 0} 条流 '
+          '画质=${response.dash?.video?.availableVideoQualities ?? const {}}',
+        );
         return res;
       }
       // gRPC 取流失败时回退到 web 接口，避免开关打开后完全无法播放
