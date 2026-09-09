@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/home/rcmd/result.dart';
@@ -28,8 +29,15 @@ class RcmdController extends CommonListController {
   @override
   void onInit() {
     super.onInit();
-    _seen.addAll(Pref.rcmdSeenAids);
-    _seenSet.addAll(_seen);
+    try {
+      _seen.addAll(Pref.rcmdSeenAids);
+      _seenSet.addAll(_seen);
+    } catch (e) {
+      // 记录损坏时当作空处理，绝不让首页崩掉
+      debugPrint('load rcmd seen failed: $e');
+      _seen.clear();
+      _seenSet.clear();
+    }
     page = 0;
     queryData();
   }
@@ -45,24 +53,33 @@ class RcmdController extends CommonListController {
   void clearSeen() {
     _seen.clear();
     _seenSet.clear();
-    Pref.setRcmdSeenAids(_seen);
+    try {
+      Pref.setRcmdSeenAids(_seen);
+    } catch (e) {
+      debugPrint('save rcmd seen failed: $e');
+    }
   }
 
   void _markSeen(List<int> aids) {
     if (aids.isEmpty) return;
-    for (final aid in aids) {
-      if (_seenSet.add(aid)) {
-        _seen.add(aid);
+    try {
+      for (final aid in aids) {
+        if (_seenSet.add(aid)) {
+          _seen.add(aid);
+        }
       }
-    }
-    if (_seen.length > _maxSeen) {
-      final overflow = _seen.length - _maxSeen;
-      for (var i = 0; i < overflow; i++) {
-        _seenSet.remove(_seen[i]);
+      if (_seen.length > _maxSeen) {
+        final overflow = _seen.length - _maxSeen;
+        for (var i = 0; i < overflow; i++) {
+          _seenSet.remove(_seen[i]);
+        }
+        _seen.removeRange(0, overflow);
       }
-      _seen.removeRange(0, overflow);
+      Pref.setRcmdSeenAids(_seen);
+    } catch (e) {
+      // 持久化失败只影响去重记忆，绝不能让首页崩掉
+      debugPrint('save rcmd seen failed: $e');
     }
-    Pref.setRcmdSeenAids(_seen);
   }
 
   @override
@@ -128,20 +145,22 @@ class RcmdController extends CommonListController {
         }
         kept.add(e);
       }
-      // 安全阀：推荐池有限，若绝大多数都推过则本轮不过滤，避免首页刷空
-      if (kept.isNotEmpty && kept.length * 10 >= before * 3) {
+      // 安全阀：推荐池有限，若绝大多数都推过则本轮不过滤，避免首页刷空；
+      // 且整轮跳过标记，避免把旧内容反复写进记录
+      final freshEnough = kept.isNotEmpty && kept.length * 10 >= before * 3;
+      if (freshEnough) {
         dataList
           ..clear()
           ..addAll(kept);
-      }
-      final ids = <int>[];
-      for (final e in dataList) {
-        final id = e is RcmdVideoItemAppModel ? e.id : null;
-        if (id != null) {
-          ids.add(id);
+        final ids = <int>[];
+        for (final e in dataList) {
+          final id = e is RcmdVideoItemAppModel ? e.id : null;
+          if (id != null) {
+            ids.add(id);
+          }
         }
+        _markSeen(ids);
       }
-      _markSeen(ids);
     }
 
     _flush++;
