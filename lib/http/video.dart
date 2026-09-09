@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
@@ -39,6 +40,7 @@ import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/subtitle_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:protobuf/protobuf.dart';
@@ -47,6 +49,20 @@ import 'package:protobuf/protobuf.dart';
 abstract final class VideoHttp {
   static RegExp zoneRegExp = RegExp(Pref.banWordForZone, caseSensitive: false);
   static bool enableFilter = zoneRegExp.pattern.isNotEmpty;
+
+  static String? _deviceModel;
+  // 官方 app 会带上真实机型，这里同样带上（取不到就退回 android）
+  static Future<String> _deviceName() async {
+    if (_deviceModel != null) return _deviceModel!;
+    try {
+      _deviceModel = Platform.isAndroid
+          ? (await DeviceInfoPlugin().androidInfo).model
+          : Platform.operatingSystem;
+    } catch (_) {
+      _deviceModel = 'android';
+    }
+    return _deviceModel!;
+  }
 
   // 首页推荐视频
   static Future<LoadingState<List<RcmdVideoItemModel>>> rcmdVideoList({
@@ -84,32 +100,40 @@ abstract final class VideoHttp {
     }
   }
 
-  // 添加额外的loginState变量模拟未登录状态
+  // app 推荐接口的 idx 是续推游标（刷新传列表首条的 idx、加载更多传末条的 idx），不是页码
   static Future<LoadingState<List<RcmdVideoItemAppModel>>> rcmdVideoListApp({
-    required int freshIdx,
+    required int idx,
+    required int flush,
+    required bool pull,
   }) async {
+    final isCold = idx == 0;
     final params = {
       'build': 2001100,
       'c_locale': 'zh_CN',
       'channel': 'master',
       'column': 4,
+      'column_timestamp': 0,
       'device': 'pad',
-      'device_name': 'android',
+      'device_name': await _deviceName(),
       'device_type': 0,
       'disable_rcmd': 0,
-      'flush': 5,
+      'flush': flush,
       'fnval': 976,
       'fnver': 0,
       'force_host': 2, //使用https
       'fourk': 1,
       'guidance': 0,
       'https_url_req': 0,
-      'idx': freshIdx,
+      'idx': idx,
+      'interest_id': 0,
+      // 会话上下文：冷启动且已登录=2、未登录=1、非冷启动=0
+      'login_event': isCold ? (Accounts.main.isLogin ? 2 : 1) : 0,
       'mobi_app': 'android_hd',
       'network': 'wifi',
+      'open_event': isCold ? 'cold' : 'hot',
       'platform': 'android',
       'player_net': 1,
-      'pull': freshIdx == 0 ? 'true' : 'false',
+      'pull': pull ? 'true' : 'false',
       'qn': 32,
       'recsys_mode': 0,
       's_locale': 'zh_CN',
@@ -475,6 +499,11 @@ abstract final class VideoHttp {
     required int id,
     int? reasonId,
     int? feedbackId,
+    int? mid,
+    int? rid,
+    int? tagId,
+    String? trackId,
+    String? reportData,
   }) async {
     if (Accounts.get(AccountType.recommend).accessKey.isNullOrEmpty) {
       return const Error('请退出账号后重新登录');
@@ -487,6 +516,15 @@ abstract final class VideoHttp {
         'id': id,
         'reason_id': ?reasonId,
         'feedback_id': ?feedbackId,
+        // 官方 app 会带上这些定位字段，缺了服务端可能无法准确归因到 UP/分区
+        'mid': ?mid,
+        'rid': ?rid,
+        'tag_id': ?tagId,
+        'track_id': ?trackId,
+        'report_data': ?reportData,
+        'is_light_panel': 'false',
+        'spmid': 'tm.recommend.0.0',
+        'from_spmid': 'tm.recommend.0.0',
         'build': 1,
         'mobi_app': 'android',
       },
@@ -504,6 +542,11 @@ abstract final class VideoHttp {
     required int id,
     int? reasonId,
     int? feedbackId,
+    int? mid,
+    int? rid,
+    int? tagId,
+    String? trackId,
+    String? reportData,
   }) async {
     if (Accounts.get(AccountType.recommend).accessKey.isNullOrEmpty) {
       return const Error('请退出账号后重新登录');
@@ -515,6 +558,14 @@ abstract final class VideoHttp {
         'id': id,
         'reason_id': ?reasonId,
         'feedback_id': ?feedbackId,
+        'mid': ?mid,
+        'rid': ?rid,
+        'tag_id': ?tagId,
+        'track_id': ?trackId,
+        'report_data': ?reportData,
+        'is_light_panel': 'false',
+        'spmid': 'tm.recommend.0.0',
+        'from_spmid': 'tm.recommend.0.0',
         'build': 1,
         'mobi_app': 'android',
       },

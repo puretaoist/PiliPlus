@@ -11,6 +11,14 @@ class RcmdVideoItemAppModel extends BaseRcmdVideoItemModel {
   String? cardType;
   ThreePoint? threePoint;
 
+  /// app 推荐接口的续推游标（刷新/加载更多时回传，不能用页码代替）
+  int? idx;
+
+  /// 分区 id、曝光上报参数（提交"不感兴趣"反馈时带上，服务端才能准确归因）
+  int? tid;
+  String? trackId;
+  String? reportData;
+
   RcmdVideoItemAppModel.fromJson(Map<String, dynamic> json) {
     aid = json['player_args']?['aid'] ?? parseIntOrNull(json['param']);
     bvid = json['bvid'] ?? IdUtils.av2bv(aid!);
@@ -49,6 +57,18 @@ class RcmdVideoItemAppModel extends BaseRcmdVideoItemModel {
         ? ThreePoint.fromJson(json['three_point_v2'])
         : null;
     desc = json['desc'];
+    idx = switch (json['idx']) {
+      final int v => v,
+      final String v => int.tryParse(v),
+      _ => null,
+    };
+    tid = switch (json['args']?['tid']) {
+      final int v => v,
+      final String v => int.tryParse(v),
+      _ => null,
+    };
+    trackId = json['track_id']?.toString();
+    reportData = json['report_data']?.toString();
   }
 }
 

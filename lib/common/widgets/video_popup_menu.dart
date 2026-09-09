@@ -130,6 +130,11 @@ class VideoPopupMenu extends StatelessWidget {
                                 feedbackId: f?.id,
                                 id: item.param!,
                                 goto: item.goto!,
+                                mid: item.owner.mid,
+                                rid: item.aid,
+                                tagId: item.tid,
+                                trackId: item.trackId,
+                                reportData: item.reportData,
                               );
                               SmartDialog.dismiss();
                               if (res.isSuccess) {
@@ -184,6 +189,11 @@ class VideoPopupMenu extends StatelessWidget {
                                           await VideoHttp.feedDislikeCancel(
                                             id: item.param!,
                                             goto: item.goto!,
+                                            mid: item.owner.mid,
+                                            rid: item.aid,
+                                            tagId: item.tid,
+                                            trackId: item.trackId,
+                                            reportData: item.reportData,
                                           );
                                       SmartDialog.dismiss();
                                       SmartDialog.showToast(
