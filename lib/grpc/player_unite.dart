@@ -8,6 +8,8 @@ import 'package:PiliPlus/grpc/bilibili/metadata/device.pb.dart';
 import 'package:PiliPlus/grpc/bilibili/playershared.pb.dart' as ps;
 import 'package:PiliPlus/grpc/grpc_req.dart';
 import 'package:PiliPlus/grpc/url.dart';
+import 'package:PiliPlus/http/browser_ua.dart';
+import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/models/common/video/audio_quality.dart';
@@ -15,6 +17,7 @@ import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/login_utils.dart';
+import 'package:dio/dio.dart' show Options;
 import 'package:fixnum/fixnum.dart';
 
 /// app 端 gRPC 取流（PlayViewUnite）
@@ -62,7 +65,7 @@ abstract final class PlayerUniteGrpc {
         }.entries,
       ),
       pu.PlayViewUniteReply.fromBuffer,
-      headers: _phoneAppHeaders(),
+      headers: await _phoneAppHeaders(),
     );
 
     switch (res) {
@@ -75,13 +78,38 @@ abstract final class PlayerUniteGrpc {
     }
   }
 
+  static String? _remoteBuvid;
+
+  /// 取服务端下发的 buvid（本地生成的 buvid 服务端可能不认识）
+  static Future<String> _buvid() async {
+    if (_remoteBuvid != null) {
+      return _remoteBuvid!;
+    }
+    try {
+      final res = await Request().get(
+        'https://api.bilibili.com/x/web-frontend/getbuvid',
+        options: Options(
+          headers: {
+            'user-agent': BrowserUa.mob,
+            'referer': 'https://www.bilibili.com',
+          },
+        ),
+      );
+      if (res.data?['data']?['buvid'] case final String buvid
+          when buvid.isNotEmpty) {
+        return _remoteBuvid = buvid;
+      }
+    } catch (_) {}
+    return _remoteBuvid = LoginUtils.buvid;
+  }
+
   /// 官方手机版（android）的客户端身份头。
   /// PiliPlus 默认用 HD/电视版身份（android_hd、appId 5），
   /// 两者的画质档位授权不同；这里按手机版身份请求（bbspace 默认也是手机版）。
-  static Map<String, String> _phoneAppHeaders() {
+  static Future<Map<String, String>> _phoneAppHeaders() async {
     const build = 8620300;
     const channel = '360';
-    final buvid = LoginUtils.buvid;
+    final buvid = await _buvid();
     final accessKey = Accounts.get(AccountType.main).accessKey;
     return {
       'app-key': 'android64',
