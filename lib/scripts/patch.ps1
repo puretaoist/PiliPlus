@@ -312,3 +312,28 @@ foreach ($patch in $patches_cupertino) {
         throw "$LASTEXITCODE"
     }
 }
+
+# throttle canvas_danmaku repaint to 60fps (power optimization on high-refresh screens)
+$DanmakuThrottlePatch = "lib/scripts/danmaku_throttle.patch"
+
+$DanmakuDir = Get-ChildItem "$PubCacheDir/git" -Directory |
+    Where-Object { $_.Name -like "canvas_danmaku-*" } |
+    Select-Object -Last 1
+
+if (-not $DanmakuDir) {
+    throw "canvas_danmaku package not found in pub cache"
+}
+
+Write-Host "canvas_danmaku dir: $($DanmakuDir.FullName)"
+
+(Get-Content "$env:GITHUB_WORKSPACE/$DanmakuThrottlePatch" -Raw) -replace "`r`n", "`n" |
+    Set-Content -NoNewline "$env:GITHUB_WORKSPACE/$DanmakuThrottlePatch"
+
+cd $DanmakuDir.FullName
+
+git apply "$env:GITHUB_WORKSPACE/$DanmakuThrottlePatch"
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "$DanmakuThrottlePatch applied"
+} else {
+    throw "$LASTEXITCODE"
+}

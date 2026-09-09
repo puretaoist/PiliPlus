@@ -1,0 +1,30 @@
+diff --git a/lib/danmaku_screen.dart b/lib/danmaku_screen.dart
+index 2232b5e..63e3474 100644
+--- a/lib/danmaku_screen.dart
++++ b/lib/danmaku_screen.dart
+@@ -127,8 +127,24 @@ class _DanmakuScreenState<T> extends State<DanmakuScreen<T>>
+   }
+ 
+   int _time = 0;
++
++  /// 弹幕重绘帧率上限（60fps）。
++  /// Ticker 跟 vsync，高刷屏（120Hz+）上原本每个 vsync 都全量重绘弹幕画布，
++  /// 功耗随刷新率线性上涨；这里用时间闸门把重绘限制在 60fps，视觉无损。
++  static const int _throttleIntervalMs = 1000 ~/ 60;
++  int _lastDrawMs = 0;
++
+   void _tick(Duration elapsed) {
+-    _notifier.value = elapsed.inMilliseconds + _lastTick;
++    final nowMs = elapsed.inMilliseconds;
++    // ticker 重新 start 后 elapsed 会归零，此时重置闸门
++    if (nowMs < _lastDrawMs) {
++      _lastDrawMs = 0;
++    }
++    if (nowMs - _lastDrawMs < _throttleIntervalMs) {
++      return;
++    }
++    _lastDrawMs = nowMs;
++    _notifier.value = nowMs + _lastTick;
+     if (_time++ > 10) {
+       _time = 0;
+       _lazyTick(_notifier.value);

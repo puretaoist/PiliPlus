@@ -18,6 +18,7 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/user.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
+import 'package:PiliPlus/models/common/video_report_context.dart';
 import 'package:PiliPlus/models/common/sponsor_block/action_type.dart';
 import 'package:PiliPlus/models/common/sponsor_block/post_segment_model.dart';
 import 'package:PiliPlus/models/common/sponsor_block/segment_model.dart';
@@ -376,6 +377,9 @@ class VideoDetailController extends GetxController
     isVertical = RxBool(args['isVertical'] ?? false);
 
     sourceType = args['sourceType'] ?? SourceType.normal;
+    // 首页 app 推荐下发的归因字段，心跳上报时带给服务端
+    _trackId = args['trackId'];
+    _reportData = args['reportData'];
     isFileSource = sourceType == SourceType.file;
     isPlayAll = sourceType != SourceType.normal && !isFileSource;
     if (isFileSource) {
@@ -1035,6 +1039,22 @@ class VideoDetailController extends GetxController
       final targetVideoQa = data.findAvailableVideoQuality(cacheVideoQa);
       currentVideoQa.value = VideoQuality.fromCode(targetVideoQa);
 
+      // 挂推荐归因上下文：来自首页推荐且为 UGC 时，mobile 心跳带 track_id，
+      // 服务端据此对已推内容去重、按真实观看更新画像；其余场景清空走旧心跳
+      plPlayerController.reportContext = isUgc
+          ? VideoReportContext(
+              aid: aid,
+              cid: cid.value,
+              bvid: bvid,
+              trackId: _trackId,
+              reportData: _reportData,
+              from: _trackId != null ? 'feed' : '',
+              fromSpmid: _trackId != null ? 'tm.recommend.0.0' : '',
+              videoDuration: (data.timeLength ?? 0) ~/ 1000,
+              quality: targetVideoQa,
+            )
+          : null;
+
       /// 优先顺序 设置中指定解码格式 -> 当前可选的首个解码格式
       final supportFormats = data.supportFormats!;
 
@@ -1319,6 +1339,10 @@ class VideoDetailController extends GetxController
       );
     }
   }
+
+  // 推荐归因（来自首页 app 推荐的 item.track_id / report_data），心跳上报用
+  String? _trackId;
+  String? _reportData;
 
   void makeHeartBeat() {
     if (plPlayerController.enableHeart &&

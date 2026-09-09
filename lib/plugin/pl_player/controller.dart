@@ -11,6 +11,8 @@ import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
+import 'package:PiliPlus/models/common/video_report_context.dart';
+import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:PiliPlus/models/common/audio_normalization.dart';
 import 'package:PiliPlus/models/common/super_resolution_type.dart';
 import 'package:PiliPlus/models/common/video/video_type.dart';
@@ -156,6 +158,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// 这里由取流侧显式标记，不靠 URL 里的 platform 参数猜——app 下发的 URL 并不保证
   /// 带 `platform=android`（bbspace 也只用 "platform=pc" 反判 web 流，其余按 app 流处理）。
   bool appStreamHeaders = false;
+
+  /// 播放归因上下文（详情页取流成功后设置）。
+  /// 非空且为 UGC 时，心跳走 /x/report/heartbeat/mobile 并带推荐归因字段，
+  /// 服务端据此对已推内容去重、并按真实观看更新画像
+  VideoReportContext? reportContext;
 
   Timer? _timer;
   StreamSubscription? _subForSeek;
@@ -1407,6 +1414,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             isVertical: isVertical,
             orientation: orientation,
           );
+          // 全屏时把刷新率钉在 60Hz：全屏无列表滚动，压刷新率可显著降低
+          // 弹幕/渲染功耗；退出全屏时恢复用户设置
+          await _pinRefreshRateForFullScreen(true);
         } else {
           await enterDesktopFullScreen(inAppFullScreen: inAppFullScreen);
         }
@@ -1419,6 +1429,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             return;
           }
           await resetScreenRotation();
+          await _pinRefreshRateForFullScreen(false);
         } else {
           await exitDesktopFullScreen();
         }
@@ -1426,6 +1437,36 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     } finally {
       _setFullScreen(status);
       _fsProcessing = false;
+    }
+  }
+
+  /// 全屏播放时把刷新率钉在 60Hz（弹幕重绘与渲染合成随之降到 60fps，
+  /// 显著降功耗）；退出全屏恢复用户设置（未设置则 auto）。仅 Android。
+  Future<void> _pinRefreshRateForFullScreen(bool enter) async {
+    if (!Platform.isAndroid) return;
+    try {
+      if (enter) {
+        final modes = await FlutterDisplayMode.supported;
+        final candidates = modes.where((e) => e.refreshRate <= 61).toList()
+          ..sort((a, b) => b.refreshRate.compareTo(a.refreshRate));
+        if (candidates.isEmpty) return;
+        await FlutterDisplayMode.setPreferredMode(candidates.first);
+      } else {
+        final saved = GStorage.setting.get(SettingBoxKey.displayMode);
+        DisplayMode? restore;
+        if (saved is String && saved.isNotEmpty) {
+          final modes = await FlutterDisplayMode.supported;
+          for (final e in modes) {
+            if (e.toString() == saved) {
+              restore = e;
+              break;
+            }
+          }
+        }
+        await FlutterDisplayMode.setPreferredMode(restore ?? DisplayMode.auto);
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('set refresh rate failed: $e');
     }
   }
 
@@ -1466,6 +1507,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
 
     Future<void> send() {
+      final ctx = reportContext;
+      if (ctx != null && (videoType ?? _videoType) == VideoType.ugc) {
+        return VideoHttp.mobileHeartBeat(
+          ctx,
+          progress,
+          completed: type == HeartBeatType.completed || progress < 0,
+        );
+      }
       return VideoHttp.heartBeat(
         aid: aid ?? _aid,
         bvid: bvid ?? _bvid,

@@ -11,6 +11,8 @@ import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/login.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/models/common/video/video_type.dart';
+import 'package:PiliPlus/models/common/video_report_context.dart';
+import 'package:PiliPlus/utils/app_sign.dart';
 import 'package:PiliPlus/models/home/rcmd/result.dart';
 import 'package:PiliPlus/models/model_hot_video_item.dart';
 import 'package:PiliPlus/models/model_rec_video_item.dart';
@@ -29,7 +31,6 @@ import 'package:PiliPlus/models_new/video/video_play_info/data.dart';
 import 'package:PiliPlus/models_new/video/video_relation/data.dart';
 import 'package:PiliPlus/models_new/video/video_shot/data.dart';
 import 'package:PiliPlus/utils/accounts.dart';
-import 'package:PiliPlus/utils/app_sign.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
@@ -749,6 +750,89 @@ abstract final class VideoHttp {
       },
       options: Options(contentType: Headers.formUrlEncodedContentType),
     );
+  }
+
+  /// 移动端心跳（/x/report/heartbeat/mobile），带推荐归因。
+  ///
+  /// 官方客户端对推荐流的去重与画像更新依赖此接口的 track_id / report_flow_data /
+  /// from_spmid 归因字段；web 心跳（[heartBeat]）不含这些字段，服务端无法把观看
+  /// 关联到具体某条推荐。参数对齐官方客户端（bbspace RemotePlaybackReporter 同源）。
+  /// 返回服务端是否接受（code==0），供调试归因链路。
+  static Future<bool> mobileHeartBeat(
+    VideoReportContext ctx,
+    int progress, {
+    required bool completed,
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final total = (now - ctx.startTs).clamp(0, 1 << 30);
+    final progressSec = completed ? ctx.videoDuration : progress;
+    ctx.updateProgress(progressSec);
+    final account = Accounts.get(AccountType.main);
+    final params = <String, dynamic>{
+      'session': ctx.session,
+      'mid': account.mid,
+      'aid': ctx.aid,
+      'cid': ctx.cid,
+      'type': ctx.type,
+      'sub_type': ?ctx.subType,
+      'quality': ctx.quality,
+      'video_duration': ctx.videoDuration,
+      'play_type': 1,
+      'network_type': 1,
+      'from': ctx.from,
+      'from_spmid': ctx.fromSpmid,
+      'spmid': ctx.spmid,
+      'play_status': 0,
+      'user_status': 0,
+      'auto_play': 0,
+      'play_mode': 1,
+      'cur_language': '',
+      'oaid': '',
+      'is_auto_qn': 1,
+      'extra': '{"from_outer_spmid":"${ctx.fromSpmid}"}',
+      'track_id': ?ctx.trackId,
+      'report_flow_data': ?ctx.reportData,
+      'sid': ?ctx.seasonId,
+      'epid': ?ctx.epId,
+      'start_ts': ctx.startTs,
+      'total_time': total,
+      'paused_time': 0,
+      'played_time': progressSec,
+      'last_play_progress_time': progressSec,
+      'max_play_progress_time': ctx.maxProgress,
+      'actual_played_time': total,
+      'list_play_time': 0,
+      'miniplayer_play_time': 0,
+      'build': 8620300,
+      'c_locale': 'zh_CN',
+      'channel': 'master',
+      'mobi_app': 'android',
+      'platform': 'android',
+      's_locale': 'zh_CN',
+      'access_key': ?account.accessKey,
+    };
+    // 手机版身份的签名（appkey/appsec 必须与 mobi_app=android 匹配）
+    AppSign.appSign(
+      params,
+      appkey: '1d8b6e7d45233436',
+      appsec: '560c52ccd288fed045859ed18bffd973',
+    );
+    return Request()
+        .post(
+          'https://app.bilibili.com/x/report/heartbeat/mobile',
+          data: params,
+          options: Options(
+            contentType: Headers.formUrlEncodedContentType,
+            headers: {
+              'env': 'prod',
+              'app-key': 'android',
+              'user-agent': Constants.userAgentApp,
+              'x-bili-trace-id': Constants.traceId,
+              'bili-http-engine': 'cronet',
+            },
+          ),
+        )
+        .then((res) => res.data is Map && res.data['code'] == 0);
   }
 
   static Future<void> medialistHistory({

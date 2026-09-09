@@ -53,6 +53,12 @@ class VideoCardV extends StatelessWidget {
           }
         }
         if (cid != null) {
+          // 推荐归因：详情页心跳据此向服务端上报"该条推荐已被消费"
+          final item = videoItem;
+          final trackId = item is RcmdVideoItemAppModel ? item.trackId : null;
+          final reportData = item is RcmdVideoItemAppModel
+              ? item.reportData
+              : null;
           PageUtils.toVideoPage(
             aid: videoItem.aid,
             bvid: bvid,
@@ -61,6 +67,7 @@ class VideoCardV extends StatelessWidget {
             title: videoItem.title,
             isVertical: isVertical,
             dimension: dimension,
+            extraArguments: {'trackId': ?trackId, 'reportData': ?reportData},
           );
         }
         break;
