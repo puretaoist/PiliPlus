@@ -876,7 +876,8 @@ class VideoDetailController extends GetxController
           var snippet = '';
           if (data != null && data.isNotEmpty) {
             snippet = utf8
-                .decode(data.take(200).toList(), allowMalformed: true)
+                .decode(data.take(200).cast<int>().toList(),
+                    allowMalformed: true)
                 .replaceAll(RegExp(r'\s+'), ' ');
           }
           buf.writeln(
