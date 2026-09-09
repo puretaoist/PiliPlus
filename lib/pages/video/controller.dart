@@ -811,8 +811,10 @@ class VideoDetailController extends GetxController
         return res;
       }
       // gRPC 取流失败时回退到 web 接口，避免开关打开后完全无法播放
+      final errMsg = res is Error ? res.errMsg : null;
+      SmartDialog.showToast('4K取流失败，已回退：${errMsg ?? '未知错误'}');
       if (kDebugMode) {
-        debugPrint('playViewUnite failed: ${res is Error ? res.errMsg : res}');
+        debugPrint('playViewUnite failed: $errMsg');
       }
     }
     return VideoHttp.videoUrl(

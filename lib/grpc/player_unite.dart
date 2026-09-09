@@ -52,7 +52,6 @@ abstract final class PlayerUniteGrpc {
         }.entries,
       ),
       pu.PlayViewUniteReply.fromBuffer,
-      isolate: true,
     );
 
     switch (res) {
