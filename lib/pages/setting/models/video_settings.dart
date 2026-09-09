@@ -37,6 +37,13 @@ List<SettingsModel> get videoSettings => [
     setKey: SettingBoxKey.p1080,
     defaultVal: true,
   ),
+  const SwitchModel(
+    title: '需要4K（app接口取流）',
+    subtitle: '改用app端接口取流并请求试看高画质（4K/1080P+），不保证每个视频生效',
+    leading: Icon(Icons.high_quality_outlined),
+    setKey: SettingBoxKey.unlockHighQuality,
+    defaultVal: false,
+  ),
   NormalModel(
     title: 'B站定向流量支持',
     subtitle: '若套餐含B站定向流量，则会自动使用。可查阅运营商的流量记录确认。',

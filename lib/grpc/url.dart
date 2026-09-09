@@ -60,6 +60,10 @@ abstract final class GrpcUrl {
   static const audioTripleLike = '$audio/TripleLike';
   static const audioCoinAdd = '$audio/CoinAdd';
 
+  // playerunite
+  static const playViewUnite =
+      '/bilibili.app.playerunite.v1.Player/PlayViewUnite';
+
   // space
   static const space = '/bilibili.app.interface.v1.Space';
   static const searchArchive = '$space/SearchArchive';

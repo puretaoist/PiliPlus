@@ -9,6 +9,7 @@ import 'package:PiliPlus/common/widgets/scaffold/mini_scaffold.dart';
 import 'package:PiliPlus/grpc/bilibili/app/listener/v1.pbenum.dart'
     show PlaylistSource;
 import 'package:PiliPlus/grpc/dm.dart';
+import 'package:PiliPlus/grpc/player_unite.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/fav.dart';
 import 'package:PiliPlus/http/init.dart';
@@ -791,6 +792,22 @@ class VideoDetailController extends GetxController
   }
 
   Future<LoadingState<PlayUrlModel>> _getVideoUrl(int quality) {
+    if (Pref.unlockHighQuality &&
+        (_actualVideoType ?? videoType) == VideoType.ugc &&
+        aid > 0) {
+      return PlayerUniteGrpc.playViewUnite(
+        aid: aid,
+        cid: cid.value,
+        qn: quality,
+        needTrial: true,
+        bvid: bvid,
+        preferCodec: switch (Pref.preferCodecs.first) {
+          VideoDecodeFormatType.AVC => 1,
+          VideoDecodeFormatType.AV1 => 3,
+          _ => 2,
+        },
+      );
+    }
     return VideoHttp.videoUrl(
       cid: cid.value,
       bvid: bvid,

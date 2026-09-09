@@ -730,6 +730,9 @@ abstract final class Pref {
   static bool get p1080 =>
       _setting.get(SettingBoxKey.p1080, defaultValue: true);
 
+  static bool get unlockHighQuality =>
+      _setting.get(SettingBoxKey.unlockHighQuality, defaultValue: false);
+
   static int get customColor =>
       _setting.get(SettingBoxKey.customColor, defaultValue: 0);
 
