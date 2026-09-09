@@ -56,10 +56,7 @@ abstract final class PlayerUniteGrpc {
 
     switch (res) {
       case Success(:final response):
-        final model = _toPlayUrlModel(response);
-        return model == null
-            ? const Error('取流失败：没有可用的视频流')
-            : Success(model);
+        return _toPlayUrlModel(response);
       case Error():
         return res;
       case Loading():
@@ -69,7 +66,9 @@ abstract final class PlayerUniteGrpc {
 
   /// 把 PlayViewUniteReply 映射成 web 接口同构的 PlayUrlModel，
   /// 下游（画质选择、播放器、下载）无需改动
-  static PlayUrlModel? _toPlayUrlModel(pu.PlayViewUniteReply reply) {
+  static LoadingState<PlayUrlModel> _toPlayUrlModel(
+    pu.PlayViewUniteReply reply,
+  ) {
     final vod = reply.vodInfo;
 
     // 同一画质可能有多条流（不同编码），按画质分组
@@ -77,14 +76,20 @@ abstract final class PlayerUniteGrpc {
     for (final stream in vod.streamList) {
       final info = stream.streamInfo;
       if (info.quality <= 0 ||
-          stream.dashVideo.baseUrl.isEmpty ||
-          !_qualityKnown(info.quality)) {
+          !_qualityKnown(info.quality) ||
+          _dashOf(stream) == null) {
         continue;
       }
       grouped.putIfAbsent(info.quality, () => []).add(stream);
     }
     if (grouped.isEmpty) {
-      return null;
+      final total = vod.streamList.length;
+      final dashCount = vod.streamList.where((s) => s.hasDashVideo()).length;
+      final multiCount =
+          vod.streamList.where((s) => s.hasMultiDashVideo()).length;
+      return Error(
+        '取流失败：服务端返回 $total 条流（dash=$dashCount, multi=$multiCount）',
+      );
     }
 
     // findAvailableVideoQuality 依赖“高画质在前”的顺序
@@ -97,7 +102,7 @@ abstract final class PlayerUniteGrpc {
       final info = streams.first.streamInfo;
       final codecs = <String>{};
       for (final stream in streams) {
-        final dash = stream.dashVideo;
+        final dash = _dashOf(stream)!;
         final codec = _codecString(dash.codecid);
         codecs.add(codec);
         videos.add(
@@ -155,7 +160,7 @@ abstract final class PlayerUniteGrpc {
       }
     }
 
-    return PlayUrlModel(
+    final model = PlayUrlModel(
       quality: vod.quality > 0 ? vod.quality : videos.first.id,
       timeLength: vod.timelength.toInt(),
       acceptQuality: qualities,
@@ -164,6 +169,23 @@ abstract final class PlayerUniteGrpc {
       dash: Dash(video: videos, audio: audios.isEmpty ? null : audios),
       supportFormats: formats,
     );
+    return Success(model);
+  }
+
+  /// 高画质流可能放在 multiDashVideo 里（app 接口对 HDR/8K 等会这样返回），
+  /// 取其中第一条可用的 dash 流
+  static ps.DashVideo? _dashOf(ps.Stream stream) {
+    if (stream.hasDashVideo() && stream.dashVideo.baseUrl.isNotEmpty) {
+      return stream.dashVideo;
+    }
+    if (stream.hasMultiDashVideo()) {
+      for (final dash in stream.multiDashVideo.dashVideos) {
+        if (dash.baseUrl.isNotEmpty) {
+          return dash;
+        }
+      }
+    }
+    return null;
   }
 
   static AudioItem? _toAudio(ps.DashItem item) {
