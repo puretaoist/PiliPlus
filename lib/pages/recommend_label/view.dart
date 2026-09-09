@@ -243,7 +243,10 @@ class _RecommendLabelPageState extends State<RecommendLabelPage> {
     ColorScheme colorScheme,
   ) {
     final material = response.mngPageMaterial;
-    final fixedNames = _fixedLabels.map((e) => e.name).toSet();
+    final fixedNames = _fixedLabels
+        .map((e) => e.name)
+        .whereType<String>()
+        .toSet();
     return [
       Row(
         children: [
