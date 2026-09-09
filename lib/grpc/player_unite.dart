@@ -38,10 +38,10 @@ abstract final class PlayerUniteGrpc {
           cid: Int64(cid),
           qn: Int64(qn),
           fnver: 0,
-          fnval: 4048,
+          // 与 bbspace 默认一致（4048 会额外请求 HDR/8K/AV1 等格式）
+          fnval: 272,
           download: 0,
           forceHost: 1, // 让服务端下发 https 流地址（明文 http 在 Android 9+ 会被拦截）
-          fourk: true,
           preferCodecType: switch (preferCodec) {
             1 => ps.CodeType.CODE264,
             3 => ps.CodeType.CODEAV1,
@@ -54,7 +54,7 @@ abstract final class PlayerUniteGrpc {
         bvid: bvid ?? '',
         spmid: 'united.player-video-detail.0.0',
         fromSpmid: 'tm.recommend.0.0',
-        fromScene: '0',
+        fromScene: 'normal',
         playCtrl: ps.PlayCtrl.PLAY_CTRL_DEFAULT,
         extraContent: const {
           'short_edge': '1080',
