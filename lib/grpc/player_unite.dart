@@ -27,6 +27,7 @@ abstract final class PlayerUniteGrpc {
     required int aid,
     required int cid,
     required int qn,
+    bool needTrial = false,
     int preferCodec = 2, // 1=AVC, 2=HEVC, 3=AV1
     String? bvid,
   }) async {
@@ -47,9 +48,8 @@ abstract final class PlayerUniteGrpc {
             3 => ps.CodeType.CODEAV1,
             _ => ps.CodeType.CODE265,
           },
-          // 实测 is_need_trial=true 时服务端下发的流地址会被 CDN 拒绝（403），
-          // 因此固定关闭；4K 是否可用取决于账号会员权限
-          isNeedTrial: false,
+          // 对应 bbspace 的「需要4k」开关（试看流）
+          isNeedTrial: needTrial,
         ),
         bvid: bvid ?? '',
         spmid: 'united.player-video-detail.0.0',

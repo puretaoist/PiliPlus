@@ -801,6 +801,7 @@ class VideoDetailController extends GetxController
         aid: aid,
         cid: cid.value,
         qn: quality,
+        needTrial: true,
         bvid: bvid,
         preferCodec: switch (Pref.preferCodecs.first) {
           VideoDecodeFormatType.AVC => 1,
