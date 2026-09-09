@@ -69,7 +69,7 @@ import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:PiliPlus/utils/video_utils.dart';
 import 'package:collection/collection.dart';
-import 'package:dio/dio.dart' show Options, ResponseType;
+import 'package:dio/dio.dart' show BaseOptions, Dio, Options, ResponseType;
 import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart'
     show ExtendedNestedScrollViewState;
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -818,51 +818,87 @@ class VideoDetailController extends GetxController
         if (await _probeGrpcStream(response)) {
           return res;
         }
-        SmartDialog.showToast('4K 流不可用，已回退到默认接口');
+        // 拉不通多为 CDN 地域/临时策略，静默回退即可，不必每次进视频都弹提示
+        if (kDebugMode) {
+          debugPrint('grpc stream unreachable, fallback to web');
+        }
+        return _webVideoUrl(quality);
       }
       // gRPC 取流失败时回退到 web 接口，避免开关打开后完全无法播放
-      final errMsg = res is Error ? res.errMsg : null;
-      SmartDialog.showToast('4K取流失败，已回退：${errMsg ?? '未知错误'}');
-      if (kDebugMode) {
-        debugPrint('playViewUnite failed: $errMsg');
+      if (res case Error(:final errMsg)) {
+        SmartDialog.showToast('4K取流失败，已回退：$errMsg');
+        if (kDebugMode) {
+          debugPrint('playViewUnite failed: $errMsg');
+        }
       }
     }
-    return VideoHttp.videoUrl(
-      cid: cid.value,
-      bvid: bvid,
-      qn: quality,
-      epid: epId,
-      seasonId: seasonId,
-      tryLook: plPlayerController.tryLook,
-      videoType: _actualVideoType ?? videoType,
-      language: currLang.value,
-      voiceBalance: plPlayerController.enableAudioNormalization,
-    );
+    return _webVideoUrl(quality);
   }
 
-  // 探测首条流是否真的能拉通：app 接口的流要求 App 系 UA 且不能带 Referer，
+  Future<LoadingState<PlayUrlModel>> _webVideoUrl(int quality) =>
+      VideoHttp.videoUrl(
+        cid: cid.value,
+        bvid: bvid,
+        qn: quality,
+        epid: epId,
+        seasonId: seasonId,
+        tryLook: plPlayerController.tryLook,
+        videoType: _actualVideoType ?? videoType,
+        language: currLang.value,
+        voiceBalance: plPlayerController.enableAudioNormalization,
+      );
+
+  /// 探测用 Dio：必须是**不带任何拦截器**的独立实例。
+  ///
+  /// 全局 `Request()` 挂了 AccountManager，它会给每个请求补
+  /// `referer: https://www.bilibili.com` 并带上登录 cookie；而 app 流
+  /// （URL 里 platform=android）在带 Referer 时 CDN 直接 403（实测）。
+  /// 用 Request() 探测会恒失败。这里完全对齐播放时 media_kit 的请求形态：
+  /// App 系 UA、不带 Referer、不带 cookie。
+  static final Dio _probeDio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 8),
+      receiveTimeout: const Duration(seconds: 8),
+      responseType: ResponseType.bytes,
+      // 403/404 等交给调用方按状态码判断，不抛异常
+      validateStatus: (status) => status != null && status < 500,
+    ),
+  );
+
+  // 探测流是否真的能拉通：app 接口的流要求 App 系 UA 且不能带 Referer，
   // 不匹配时 CDN 会返回 403。不通就回退到 web 接口，保证视频至少能播
   Future<bool> _probeGrpcStream(PlayUrlModel model) async {
     final videos = model.dash?.video ?? const <VideoItem>[];
     if (videos.isEmpty) {
       return false;
     }
-    try {
-      final r = await Request().get(
-        videos.first.playUrls.first,
-        options: Options(
-          responseType: ResponseType.bytes,
-          headers: {
-            'range': 'bytes=0-2047',
-            'user-agent': Constants.userAgentApp,
-          },
-          validateStatus: (s) => true,
-        ),
-      );
-      return r.statusCode == 200 || r.statusCode == 206;
-    } catch (_) {
-      return false;
+    // 只试前两档（列表按画质从高到低），兼顾准确性与起播速度
+    for (final item in videos.take(2)) {
+      for (final url in item.playUrls.take(2)) {
+        try {
+          final r = await _probeDio.get(
+            url,
+            options: Options(
+              headers: {
+                'user-agent': Constants.userAgentApp,
+                'range': 'bytes=0-2047',
+              },
+            ),
+          );
+          if (r.statusCode == 200 || r.statusCode == 206) {
+            return true;
+          }
+          if (kDebugMode) {
+            debugPrint('probe stream ${r.statusCode}: $url');
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('probe stream error: $e');
+          }
+        }
+      }
     }
+    return false;
   }
 
   Future<void> _supplementVideoQualities() async {
