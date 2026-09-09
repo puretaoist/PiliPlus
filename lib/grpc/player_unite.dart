@@ -39,8 +39,8 @@ abstract final class PlayerUniteGrpc {
           cid: Int64(cid),
           qn: Int64(qn),
           fnver: 0,
-          // 与 bbspace 默认一致（4048 会额外请求 HDR/8K/AV1 等格式）
-          fnval: 272,
+          // 与 bbspace 下载路径一致（4048 含 4K/HDR/8K/AV1 格式）
+          fnval: 4048,
           download: 0,
           forceHost: 1, // 让服务端下发 https 流地址（明文 http 在 Android 9+ 会被拦截）
           preferCodecType: switch (preferCodec) {

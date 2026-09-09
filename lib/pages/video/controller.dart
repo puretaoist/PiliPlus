@@ -800,7 +800,8 @@ class VideoDetailController extends GetxController
       final res = await PlayerUniteGrpc.playViewUnite(
         aid: aid,
         cid: cid.value,
-        qn: quality,
+        // 请求最高档位，服务端按账号权限决定下发哪些流（bbspace 下载路径即如此）
+        qn: 120,
         needTrial: true,
         bvid: bvid,
         preferCodec: switch (Pref.preferCodecs.first) {
