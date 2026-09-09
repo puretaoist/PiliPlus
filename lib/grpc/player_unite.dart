@@ -33,6 +33,7 @@ abstract final class PlayerUniteGrpc {
           fnver: 0,
           fnval: 4048,
           download: 0,
+          forceHost: 1, // 让服务端下发 https 流地址（明文 http 在 Android 9+ 会被拦截）
           fourk: true,
           preferCodecType: switch (preferCodec) {
             1 => ps.CodeType.CODE264,
@@ -108,8 +109,8 @@ abstract final class PlayerUniteGrpc {
         videos.add(
           VideoItem(
             id: quality,
-            baseUrl: dash.baseUrl,
-            backupUrl: dash.backupUrl,
+            baseUrl: _https(dash.baseUrl),
+            backupUrl: dash.backupUrl.map(_https).toList(),
             bandWidth: dash.bandwidth,
             mimeType: 'video/mp4',
             codecs: codec,
@@ -172,6 +173,10 @@ abstract final class PlayerUniteGrpc {
     return Success(model);
   }
 
+  // 明文 http 在 Android 9+ 默认被拦截，统一升级为 https
+  static String _https(String url) =>
+      url.startsWith('http://') ? 'https://${url.substring(7)}' : url;
+
   /// 高画质流可能放在 multiDashVideo 里（app 接口对 HDR/8K 等会这样返回），
   /// 取其中第一条可用的 dash 流
   static ps.DashVideo? _dashOf(ps.Stream stream) {
@@ -194,8 +199,8 @@ abstract final class PlayerUniteGrpc {
     }
     return AudioItem.fromJson({
       'id': item.id,
-      'baseUrl': item.baseUrl,
-      'backupUrl': item.backupUrl,
+      'baseUrl': _https(item.baseUrl),
+      'backupUrl': item.backupUrl.map(_https).toList(),
       'bandwidth': item.bandwidth,
       'codecid': item.codecid,
     });
