@@ -38,8 +38,8 @@ List<SettingsModel> get videoSettings => [
     defaultVal: true,
   ),
   const SwitchModel(
-    title: '需要4K（app接口取流）',
-    subtitle: '改用app端接口取流并请求试看高画质（4K/1080P+），不保证每个视频生效',
+    title: 'app接口取流（高画质）',
+    subtitle: '改用app端接口获取播放地址，会员账号可拿到更高画质；地址不可用时自动回退',
     leading: Icon(Icons.high_quality_outlined),
     setKey: SettingBoxKey.unlockHighQuality,
     defaultVal: false,

@@ -19,7 +19,6 @@ abstract final class PlayerUniteGrpc {
     required int aid,
     required int cid,
     required int qn,
-    bool needTrial = false,
     int preferCodec = 2, // 1=AVC, 2=HEVC, 3=AV1
     String? bvid,
   }) async {
@@ -40,11 +39,13 @@ abstract final class PlayerUniteGrpc {
             3 => ps.CodeType.CODEAV1,
             _ => ps.CodeType.CODE265,
           },
-          isNeedTrial: needTrial,
+          // 实测 is_need_trial=true 时服务端下发的流地址会被 CDN 拒绝（403），
+          // 因此固定关闭；4K 是否可用取决于账号会员权限
+          isNeedTrial: false,
         ),
         bvid: bvid ?? '',
-        spmid: 'main.ugc-video-detail.0.0',
-        fromSpmid: 'main.ugc-video-detail.0.0',
+        spmid: 'united.player-video-detail.0.0',
+        fromSpmid: 'tm.recommend.0.0',
         fromScene: '0',
         playCtrl: ps.PlayCtrl.PLAY_CTRL_DEFAULT,
         extraContent: const {
