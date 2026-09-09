@@ -34,6 +34,18 @@ jobs:
         shell: pwsh
         run: lib/scripts/patch.ps1 android
 
+      # 若仓库配置了固定签名密钥（4 个 secret），用它签名，这样多次构建可以覆盖安装；
+      # 没配置则回退到 runner 的 debug 密钥（每次构建都不同，无法覆盖安装）
+      - name: 写入签名密钥
+        run: |
+          if [ ! -z "${{ secrets.SIGN_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.SIGN_KEYSTORE_BASE64 }}" | base64 --decode > android/app/key.jks
+            echo storeFile='key.jks' >> android/key.properties
+            echo storePassword='${{ secrets.KEYSTORE_PASSWORD }}' >> android/key.properties
+            echo keyAlias='${{ secrets.KEY_ALIAS }}' >> android/key.properties
+            echo keyPassword='${{ secrets.KEY_PASSWORD }}' >> android/key.properties
+          fi
+
       - name: 构建 dev APK
         run: flutter build apk --release --split-per-abi --android-project-arg dev=1 --no-pub
 

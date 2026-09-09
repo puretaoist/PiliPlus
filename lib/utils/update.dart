@@ -20,6 +20,14 @@ abstract final class Update {
   static Future<void> checkUpdate([bool isAuto = true]) async {
     if (kDebugMode) return;
     SmartDialog.dismiss();
+    // 自构建版本（编译时未传 pili_release.json，buildTime 为 0）不检查更新：
+    // 包名/签名与发布版不同，下载下来也覆盖不了
+    if (BuildConfig.buildTime == 0) {
+      if (!isAuto) {
+        SmartDialog.showToast('当前为自构建版本，不检查更新');
+      }
+      return;
+    }
     try {
       final res = await Request().get(
         Api.latestApp,
@@ -28,9 +36,15 @@ abstract final class Update {
           extra: {'account': const NoAccount()},
         ),
       );
-      if (res.data is Map || res.data.isEmpty) {
+      if (res.data is Map) {
         if (!isAuto) {
           SmartDialog.showToast('检查更新失败，GitHub接口未返回数据，请检查网络');
+        }
+        return;
+      }
+      if (res.data.isEmpty) {
+        if (!isAuto) {
+          SmartDialog.showToast('暂无可用版本');
         }
         return;
       }
