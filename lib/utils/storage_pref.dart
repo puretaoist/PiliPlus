@@ -292,6 +292,21 @@ abstract final class Pref {
   static String get banWordForZone =>
       _setting.get(SettingBoxKey.banWordForZone, defaultValue: '');
 
+  /// 首页推荐过滤掉已经推过的内容
+  static bool get rcmdFilterSeen =>
+      _setting.get(SettingBoxKey.rcmdFilterSeen, defaultValue: true);
+
+  static void setRcmdFilterSeen(bool enabled) =>
+      _setting.put(SettingBoxKey.rcmdFilterSeen, enabled);
+
+  static List<int> get rcmdSeenAids {
+    final saved = _setting.get(SettingBoxKey.rcmdSeenAids);
+    return saved is List ? saved.whereType<int>().toList() : const [];
+  }
+
+  static void setRcmdSeenAids(List<int> aids) =>
+      _setting.put(SettingBoxKey.rcmdSeenAids, aids);
+
   static bool get appRcmd =>
       _setting.get(SettingBoxKey.appRcmd, defaultValue: true);
 

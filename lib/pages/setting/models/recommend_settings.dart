@@ -48,6 +48,20 @@ List<SettingsModel> get recommendSettings => [
       }
     },
   ),
+  SwitchModel(
+    title: '过滤已推荐过的内容',
+    subtitle: '不重复展示此前推过的视频，最多记录 2000 条',
+    leading: const Icon(Icons.filter_alt_outlined),
+    setKey: SettingBoxKey.rcmdFilterSeen,
+    defaultVal: true,
+    onChanged: (value) {
+      try {
+        Get.find<RcmdController>().setFilterSeen(value);
+      } catch (e) {
+        if (kDebugMode) debugPrint('$e');
+      }
+    },
+  ),
   getVideoFilterSelectModel(
     title: '点赞率',
     suffix: '%',

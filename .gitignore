@@ -149,4 +149,5 @@ pili_release.json
 
 dist
 
-test*.flutter_tool_state
+test*
+.flutter_tool_state
