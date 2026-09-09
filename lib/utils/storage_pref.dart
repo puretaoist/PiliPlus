@@ -269,9 +269,7 @@ abstract final class Pref {
   );
 
   static String get videoSync =>
-      // display-resample 按显示刷新率重采样音频计时，高刷屏上开销大；
-      // 移动端默认 audio（时钟漂移由音频时钟对齐），桌面/精度需求可在设置里改回
-      _setting.get(SettingBoxKey.videoSync, defaultValue: 'audio');
+      _setting.get(SettingBoxKey.videoSync, defaultValue: 'display-resample');
 
   static String get autosync => _setting.get(
     SettingBoxKey.autosync,

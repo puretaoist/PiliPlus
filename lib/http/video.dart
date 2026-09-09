@@ -767,10 +767,10 @@ abstract final class VideoHttp {
 
   /// 移动端心跳（/x/report/heartbeat/mobile），带推荐归因。
   ///
-  /// 官方客户端对推荐流的去重与画像更新依赖此接口的 track_id / report_flow_data /
-  /// from_spmid 归因字段；web 心跳（[heartBeat]）不含这些字段，服务端无法把观看
-  /// 关联到具体某条推荐。参数对齐官方客户端（bbspace RemotePlaybackReporter 同源）。
-  /// 返回服务端是否接受（code==0），供调试归因链路。
+  /// [completed] 为 true 表示"会话结束立即上报"（退出/完成，跳过节流）。
+  /// progress==-1 表示真正看完（played_time 取全长）；
+  /// 退出时 progress 为实际进度，played_time 按实际值上报，
+  /// 不要把"退出"误报成"看完整部"。
   static Future<bool> mobileHeartBeat(
     VideoReportContext ctx,
     int progress, {
@@ -778,7 +778,7 @@ abstract final class VideoHttp {
   }) {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final total = (now - ctx.startTs).clamp(0, 1 << 30);
-    final progressSec = completed ? ctx.videoDuration : progress;
+    final progressSec = progress < 0 ? ctx.videoDuration : progress;
     ctx.updateProgress(progressSec);
     ctx.lastReportTs = now;
     final account = Accounts.get(AccountType.main);
