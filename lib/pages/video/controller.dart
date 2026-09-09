@@ -841,71 +841,29 @@ class VideoDetailController extends GetxController
     );
   }
 
-  // 临时诊断 + 可用性探测：返回 true 表示首条流能拉通
+  // 探测首条流是否真的能拉通：app 接口的流要求 App 系 UA 且不能带 Referer，
+  // 不匹配时 CDN 会返回 403。不通就回退到 web 接口，保证视频至少能播
   Future<bool> _probeGrpcStream(PlayUrlModel model) async {
     final videos = model.dash?.video ?? const <VideoItem>[];
     if (videos.isEmpty) {
       return false;
     }
-    final buf = StringBuffer()
-      ..writeln('视频流=${videos.length} 音频流=${model.dash?.audio?.length ?? 0}')
-      ..writeln('acceptQuality=${model.acceptQuality}');
-    // 诊断：再用 bbspace 播放路径的原始参数请求一次，对比服务端返回的档位
-    final alt = await PlayerUniteGrpc.playViewUnite(
-      aid: aid,
-      cid: cid.value,
-      qn: 80,
-      fnval: 272,
-      needTrial: true,
-      bvid: bvid,
-    );
-    buf.writeln(
-      '另一组(qn=80,fnval=272,trial): ${alt.dataOrNull?.acceptQuality}',
-    );
-    final url = videos.first.playUrls.first;
-    buf.writeln('完整URL: $url');
-    var reachable = false;
-    for (final (label, ua) in <(String, String)>[
-      ('播放器UA', BrowserUa.pc),
-      ('AppUA', Constants.userAgent),
-    ]) {
-      try {
-        final r = await Request().get(
-          url,
-          options: Options(
-            responseType: ResponseType.bytes,
-            headers: {
-              'range': 'bytes=0-2047',
-              'referer': 'https://www.bilibili.com',
-              'user-agent': ua,
-            },
-            validateStatus: (s) => true,
-          ),
-        );
-        final data = r.data as List?;
-        var extra = '';
-        if (data != null && data.isNotEmpty) {
-          extra =
-              ' body=${utf8.decode(data.take(120).cast<int>().toList(), allowMalformed: true).replaceAll(RegExp(r'\s+'), ' ')}';
-        }
-        buf.writeln('$label: HTTP=${r.statusCode} len=${data?.length}$extra');
-        if (r.statusCode == 200 || r.statusCode == 206) {
-          reachable = true;
-        }
-      } catch (e) {
-        buf.writeln('$label: 异常 $e');
-      }
+    try {
+      final r = await Request().get(
+        videos.first.playUrls.first,
+        options: Options(
+          responseType: ResponseType.bytes,
+          headers: {
+            'range': 'bytes=0-2047',
+            'user-agent': Constants.userAgentApp,
+          },
+          validateStatus: (s) => true,
+        ),
+      );
+      return r.statusCode == 200 || r.statusCode == 206;
+    } catch (_) {
+      return false;
     }
-    SmartDialog.show(
-      builder: (context) => AlertDialog(
-        title: const Text('4K 取流诊断'),
-        content: SingleChildScrollView(child: SelectableText(buf.toString())),
-        actions: [
-          TextButton(onPressed: SmartDialog.dismiss, child: const Text('关闭')),
-        ],
-      ),
-    );
-    return reachable;
   }
 
   Future<void> _supplementVideoQualities() async {
