@@ -1,12 +1,20 @@
+import 'dart:convert';
+
+import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/grpc/bilibili/app/playerunite/v1/playerunite.pb.dart'
     as pu;
+import 'package:PiliPlus/grpc/bilibili/metadata.pb.dart';
+import 'package:PiliPlus/grpc/bilibili/metadata/device.pb.dart';
 import 'package:PiliPlus/grpc/bilibili/playershared.pb.dart' as ps;
 import 'package:PiliPlus/grpc/grpc_req.dart';
 import 'package:PiliPlus/grpc/url.dart';
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/models/common/video/audio_quality.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
+import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:fixnum/fixnum.dart';
 
 /// app 端 gRPC 取流（PlayViewUnite）
@@ -54,6 +62,7 @@ abstract final class PlayerUniteGrpc {
         }.entries,
       ),
       pu.PlayViewUniteReply.fromBuffer,
+      headers: _phoneAppHeaders(),
     );
 
     switch (res) {
@@ -64,6 +73,46 @@ abstract final class PlayerUniteGrpc {
       case Loading():
         return res;
     }
+  }
+
+  /// 官方手机版（android）的客户端身份头。
+  /// PiliPlus 默认用 HD/电视版身份（android_hd、appId 5），
+  /// 两者的画质档位授权不同；这里按手机版身份请求（bbspace 默认也是手机版）。
+  static Map<String, String> _phoneAppHeaders() {
+    const build = 8620300;
+    const channel = '360';
+    final buvid = LoginUtils.buvid;
+    final accessKey = Accounts.get(AccountType.main).accessKey;
+    return {
+      'app-key': 'android64',
+      'user-agent': Constants.userAgentApp,
+      'buvid': buvid,
+      'x-bili-device-bin': base64Encode(
+        Device(
+          appId: 1,
+          build: build,
+          buvid: buvid,
+          mobiApp: 'android',
+          platform: 'android',
+          channel: channel,
+          brand: 'android',
+          model: 'android',
+          osver: '15',
+          versionName: '8.62.0',
+        ).writeToBuffer(),
+      ),
+      'x-bili-metadata-bin': base64Encode(
+        Metadata(
+          accessKey: accessKey,
+          mobiApp: 'android',
+          device: 'android',
+          build: build,
+          channel: channel,
+          buvid: buvid,
+          platform: 'android',
+        ).writeToBuffer(),
+      ),
+    };
   }
 
   /// 把 PlayViewUniteReply 映射成 web 接口同构的 PlayUrlModel，

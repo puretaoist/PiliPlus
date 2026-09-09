@@ -59,6 +59,11 @@ class AccountManager extends Interceptor {
 
     if (isApp && options.responseType == ResponseType.bytes) {
       options.headers.addAll(account.grpcHeaders);
+      // 允许单次请求覆盖部分 gRPC 头（例如切换客户端身份）
+      if (options.extra['grpcHeadersOverride']
+          case final Map<String, String> override) {
+        options.headers.addAll(override);
+      }
       return handler.next(options);
     }
 
