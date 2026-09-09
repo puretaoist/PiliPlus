@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' show min;
 import 'dart:ui';
 
+import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/common/style.dart';
 import 'package:PiliPlus/common/widgets/pair.dart';
 import 'package:PiliPlus/common/widgets/progress_bar/segment_progress_bar.dart';
@@ -851,20 +853,38 @@ class VideoDetailController extends GetxController
       );
     }
     if (videos.isNotEmpty) {
-      try {
-        final r = await Request().get(
-          videos.first.playUrls.first,
-          options: Options(
-            responseType: ResponseType.bytes,
-            headers: {'range': 'bytes=0-2047'},
-            validateStatus: (s) => true,
-          ),
-        );
-        buf.writeln(
-          '首条流 HTTP=${r.statusCode} bytes=${(r.data as List?)?.length}',
-        );
-      } catch (e) {
-        buf.writeln('首条流请求异常: $e');
+      final url = videos.first.playUrls.first;
+      for (final (label, ua) in <(String, String)>[
+        ('播放器UA', BrowserUa.pc),
+        ('AppUA', Constants.userAgent),
+        ('默认UA', ''),
+      ]) {
+        try {
+          final r = await Request().get(
+            url,
+            options: Options(
+              responseType: ResponseType.bytes,
+              headers: {
+                'range': 'bytes=0-2047',
+                'referer': 'https://www.bilibili.com',
+                if (ua.isNotEmpty) 'user-agent': ua,
+              },
+              validateStatus: (s) => true,
+            ),
+          );
+          final data = r.data as List?;
+          var snippet = '';
+          if (data != null && data.isNotEmpty) {
+            snippet = utf8
+                .decode(data.take(200).toList(), allowMalformed: true)
+                .replaceAll(RegExp(r'\s+'), ' ');
+          }
+          buf.writeln(
+            '$label: HTTP=${r.statusCode} len=${data?.length} $snippet',
+          );
+        } catch (e) {
+          buf.writeln('$label: 异常 $e');
+        }
       }
     }
     SmartDialog.show(
