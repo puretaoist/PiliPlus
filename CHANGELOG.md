@@ -2,6 +2,14 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-09-10 上游同步
+
+- 合并上游 main（9730d29a8 → 32538c4d7，共 5 个提交：评论区 API 迁移、
+  动态优化、依赖升级等），零冲突
+- 依赖升级（上游 upgrade deps）：material_ui 1.1.1 → **1.2.0** ——
+  升级会丢补丁，已对 1.2.0 重新应用全部 9 个 material 补丁（上游同步适配过）
+- 本地脚本注意：material_ui 升级后需重新打补丁（见 apply_patches.ps1）
+
 ## 2026-09-09 ~ 2026-09-10
 
 ### 4K / 高清播放
