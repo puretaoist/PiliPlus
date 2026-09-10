@@ -1,5 +1,6 @@
 import 'dart:async' show Timer;
 import 'dart:convert' show jsonDecode;
+import 'dart:io';
 
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/common/widgets/button/icon_button.dart';
@@ -16,6 +17,9 @@ import 'package:catcher_2/catcher_2.dart';
 import 'package:catcher_2/utils/log_printer.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 const _snackBarDisplayDuration = Duration(seconds: 1);
 
@@ -88,6 +92,36 @@ class _LogsPageState extends State<LogsPage> {
     }
   }
 
+  /// 导出日志文件：把 .pili_logs.json 复制一份带时间戳的副本后调系统分享面板。
+  /// 反馈问题时附上原始文件比复制文本更完整（含堆栈与设备信息）。
+  Future<void> exportLogs() async {
+    void toast(String msg) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), duration: _snackBarDisplayDuration),
+        );
+      }
+    }
+
+    try {
+      final file = await LoggerUtils.getLogsPath();
+      if (!file.existsSync() || await file.length() == 0) {
+        toast('暂无日志');
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      final name =
+          'piliplus_log_${DateTime.now().millisecondsSinceEpoch}.log';
+      final target = File(p.join(dir.path, name));
+      await target.writeAsString(await file.readAsString());
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(target.path)], subject: 'PiliPlus 日志'),
+      );
+    } catch (e) {
+      toast('导出失败: $e');
+    }
+  }
+
   Future<void> clearLogs() async {
     if (await LoggerUtils.clearLogs()) {
       if (mounted) {
@@ -142,6 +176,10 @@ class _LogsPageState extends State<LogsPage> {
               PopupMenuItem(
                 onTap: copyLogs,
                 child: const Text('复制日志'),
+              ),
+              PopupMenuItem(
+                onTap: exportLogs,
+                child: const Text('导出日志'),
               ),
               PopupMenuItem(
                 onTap: () =>
