@@ -850,12 +850,15 @@ abstract final class VideoHttp {
       'cur_language': '',
       'oaid': '',
       'is_auto_qn': 1,
+      // 官方 HeartbeatParams 里这两个字段是"总是传"的（APK 8.62 反编译实证）：
+      // perfer_type 默认空串；is_audio_play 1=音频播放 2=普通视频播放。
+      // 缺失会被服务端判为参数错误（-400）
+      'perfer_type': '',
+      'is_audio_play': 2,
       // 官方会话级随机 8 位 hex；缺失会返回 -400 参数错误
       'polaris_action_id': ctx.polarisActionId,
       'extra': '{"from_outer_spmid":"${ctx.fromSpmid}"}',
       'track_id': ?ctx.trackId,
-      'report_flow_data': ?ctx.reportData,
-      // sid/epid 官方在非番剧场景传 "0"（而非省略），缺字段会被判参数错误
       'sid': ctx.seasonId ?? 0,
       'epid': ctx.epId ?? 0,
       'start_ts': ctx.startTs,
