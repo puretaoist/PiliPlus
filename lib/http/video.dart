@@ -850,7 +850,9 @@ abstract final class VideoHttp {
       ),
     ))
         .post(
-          'https://app.bilibili.com/x/report/heartbeat/mobile',
+          // 正确 host 是 api.bilibili.com（bbspace BASE_URL_API 同源）；
+          // 最初误写 app.bilibili.com 导致 404 page not found
+          'https://api.bilibili.com/x/report/heartbeat/mobile',
           data: params,
           options: Options(
             contentType: Headers.formUrlEncodedContentType,
