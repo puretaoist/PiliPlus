@@ -331,9 +331,16 @@ Write-Host "canvas_danmaku dir: $($DanmakuDir.FullName)"
 
 cd $DanmakuDir.FullName
 
-git apply "$env:GITHUB_WORKSPACE/$DanmakuThrottlePatch"
+# Actions 的 pub 缓存可能保存了"已打补丁"的副本（上次 run 打完补丁后写入缓存），
+# 直接 apply 会因补丁已存在而失败；反向 check 通过即视为已应用，跳过
+git apply --check --reverse "$env:GITHUB_WORKSPACE/$DanmakuThrottlePatch" 2>$null
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "$DanmakuThrottlePatch applied"
+    Write-Host "$DanmakuThrottlePatch already applied, skip"
 } else {
-    throw "$LASTEXITCODE"
+    git apply "$env:GITHUB_WORKSPACE/$DanmakuThrottlePatch"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "$DanmakuThrottlePatch applied"
+    } else {
+        throw "$LASTEXITCODE"
+    }
 }
