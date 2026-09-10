@@ -114,7 +114,9 @@ abstract final class VideoHttp {
       'build': 2001100,
       'c_locale': 'zh_CN',
       'channel': 'master',
-      'column': 4,
+      // column/qn/player_extra_content/video_mode 等对齐 bbspace 的实测参数：
+      // column=4 会拉到质量偏差的内容池，qn=32 声明成 480P 也会影响服务端筛选
+      'column': 2,
       'column_timestamp': 0,
       'device': 'pad',
       'device_name': await _deviceName(),
@@ -128,6 +130,8 @@ abstract final class VideoHttp {
       'guidance': 0,
       'https_url_req': 0,
       'idx': idx,
+      'inline_danmu': 2,
+      'inline_sound': 1,
       'interest_id': 0,
       // 会话上下文：冷启动且已登录=2、未登录=1、非冷启动=0
       'login_event': isCold ? (Accounts.main.isLogin ? 2 : 1) : 0,
@@ -135,14 +139,17 @@ abstract final class VideoHttp {
       'network': 'wifi',
       'open_event': isCold ? 'cold' : 'hot',
       'platform': 'android',
+      'player_extra_content': '{"short_edge":"1080","long_edge":"1920"}',
       'player_net': 1,
       'pull': pull ? 'true' : 'false',
-      'qn': 32,
+      'qn': 80,
+      'qn_policy': 0,
       'recsys_mode': 0,
       's_locale': 'zh_CN',
       'splash_id': '',
       'statistics': Constants.statistics,
-      'voice_balance': 0,
+      'video_mode': 1,
+      'voice_balance': 1,
     };
     final res = await Request().get(
       Api.recommendListApp,
