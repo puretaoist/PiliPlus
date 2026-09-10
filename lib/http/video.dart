@@ -894,13 +894,24 @@ abstract final class VideoHttp {
           options: Options(
             contentType: Headers.formUrlEncodedContentType,
             headers: {
+              // 与推荐接口/live 一致的头集合 + 修正 app-key 名称（官方 APP profile
+              // 的 appKeyName 是 android64，不是 android —— 身份标识不匹配会被拒）
+              'accept': '*/*',
+              'app-key': 'android64',
+              'bili-http-engine': 'cronet',
               'env': 'prod',
-              'app-key': 'android',
+              'buvid': LoginHttp.buvid,
+              'fp_local':
+                  '1111111111111111111111111111111111111111111111111111111111111111',
+              'fp_remote':
+                  '1111111111111111111111111111111111111111111111111111111111111111',
+              'session_id': '11111111',
               // UA 里的 build/channel 必须与表单参数一致（服务端会做一致性校验）：
               // 沿用 Constants.userAgentApp 会带上旧的 build/8430300 channel/master
               'user-agent': _userAgentAppAndroid,
+              'x-bili-aurora-eid': '',
+              'x-bili-aurora-zone': '',
               'x-bili-trace-id': Constants.traceId,
-              'bili-http-engine': 'cronet',
             },
           ),
         )
