@@ -1052,7 +1052,9 @@ class VideoDetailController extends GetxController
               bvid: bvid,
               trackId: _trackId,
               reportData: _reportData,
-              from: _trackId != null ? 'feed' : '',
+              // from 是数字语义（服务端按 int 解析）：7=推荐流、6=默认；
+              // 传 'feed' 之类字符串会直接 -400
+              from: _trackId != null ? '7' : '6',
               fromSpmid: _trackId != null ? 'tm.recommend.0.0' : '',
               videoDuration: (data.timeLength ?? 0) ~/ 1000,
               quality: targetVideoQa,

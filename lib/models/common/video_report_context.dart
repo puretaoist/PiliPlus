@@ -1,4 +1,8 @@
+import 'dart:convert';
 import 'dart:math';
+
+import 'package:crypto/crypto.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 
 /// 一次播放会话的推荐归因上下文。
 ///
@@ -68,12 +72,13 @@ class VideoReportContext {
 
   static final Random _random = Random();
 
+  /// 播放会话 id（40 位 sha1 hex）。
+  /// 官方算法（APK 逆向实证）：sha1(buvid + 毫秒时间戳 + random(0..999999))，
+  /// 无加盐。此前用随机 32 位 hex 会被服务端判参数错误（-400）
   static String _genSession() {
-    final sb = StringBuffer();
-    for (var i = 0; i < 32; i++) {
-      sb.write(_random.nextInt(16).toRadixString(16));
-    }
-    return sb.toString();
+    final input =
+        '${Pref.buvid}${DateTime.now().millisecondsSinceEpoch}${_random.nextInt(1000000)}';
+    return sha1.convert(utf8.encode(input)).toString();
   }
 
   /// 8 位大写十六进制（对齐官方 BiliSessionId.polarisAction 的形态）
