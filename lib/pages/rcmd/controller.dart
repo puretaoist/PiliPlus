@@ -36,6 +36,8 @@ class RcmdController extends CommonListController {
     try {
       _seen.addAll(Pref.rcmdSeenAids);
       _seenSet.addAll(_seen);
+      // 记录跨会话恢复情况：若始终为 0 而上一会话有标记，说明持久化链路有问题
+      Utils.reportError('[DIAG] rcmd seen loaded: ${_seen.length}');
     } catch (e) {
       // 记录损坏时当作空处理，绝不让首页崩掉
       debugPrint('load rcmd seen failed: $e');
@@ -64,6 +66,9 @@ class RcmdController extends CommonListController {
     }
   }
 
+  /// 本次会话是否已记录过持久化成功（避免高频写日志）
+  static bool _persistLogged = false;
+
   void _markSeen(List<int> aids) {
     if (aids.isEmpty) return;
     try {
@@ -84,9 +89,16 @@ class RcmdController extends CommonListController {
         _seen.removeRange(0, overflow);
       }
       Pref.setRcmdSeenAids(_seen);
+      if (!_persistLogged) {
+        _persistLogged = true;
+        // 确认写盘链路：下次会话的 "seen loaded" 应与这里一致
+        Utils.reportError(
+          '[DIAG] rcmd seen persisted: ${_seen.length}',
+        );
+      }
     } catch (e) {
       // 持久化失败只影响去重记忆，绝不能让首页崩掉
-      debugPrint('save rcmd seen failed: $e');
+      Utils.reportError('[DIAG] save rcmd seen failed: $e');
     }
   }
 
@@ -128,21 +140,10 @@ class RcmdController extends CommonListController {
 
   @override
   void handleListResponse(List dataList) {
-    if (enableSaveLastData && page == 0) {
-      if (loadingState.value case Success(:final response)) {
-        if (response != null && response.isNotEmpty) {
-          if (savedRcmdTip) {
-            lastRefreshAt = dataList.length;
-          }
-          if (response.length > 200) {
-            dataList.addAll(response.take(50));
-          } else {
-            dataList.addAll(response);
-          }
-        }
-      }
-    }
-
+    // 去重沉底必须放在"保留上次推荐"块之前：下面上游的
+    // dataList.addAll(response) 存在集合类型检查异常（真机日志已证实，
+    // 见 [DIAG] 记录），若它先执行，会把我们的 _markSeen 一并中断，
+    // 导致 seen 永远无法持久化（total=0）。放最前面保证标记流程独立。
     if (filterSeen && dataList.isNotEmpty) {
       // 已看过的内容"沉底"而不是删除。
       // 第三方客户端的推荐池有限、服务端必然重推，删除式过滤会让列表
@@ -181,6 +182,21 @@ class RcmdController extends CommonListController {
         );
       }
       _markSeen(ids);
+    }
+
+    if (enableSaveLastData && page == 0) {
+      if (loadingState.value case Success(:final response)) {
+        if (response != null && response.isNotEmpty) {
+          if (savedRcmdTip) {
+            lastRefreshAt = dataList.length;
+          }
+          if (response.length > 200) {
+            dataList.addAll(response.take(50));
+          } else {
+            dataList.addAll(response);
+          }
+        }
+      }
     }
 
     _flush++;
