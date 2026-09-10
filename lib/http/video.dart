@@ -776,6 +776,9 @@ abstract final class VideoHttp {
   /// 本次会话是否已记录过心跳结果（避免高频写日志）
   static bool _heartbeatLogged = false;
 
+  /// 本次会话是否已记录过历史上报结果
+  static bool _historyLogged = false;
+
   /// 心跳专用 Dio（绕开全局拦截器，见 mobileHeartBeat 注释）
   static Dio? _heartbeatDio;
 
@@ -997,7 +1000,21 @@ abstract final class VideoHttp {
             },
           ),
         )
-        .then((res) => res.data is Map && res.data['code'] == 0);
+        .then((res) {
+          final ok = res.data is Map && res.data['code'] == 0;
+          // 历史记录断记问题排查：首条结果与每次失败都写日志
+          // （官方参数集已核对：aid/cid/sid/epid/progress/duration/scene=front/
+          //   start_ts/device_ts/source/sub_type/type + 公参 + access_key + sign）
+          if (!ok || !_historyLogged) {
+            _historyLogged = true;
+            Utils.reportError(
+              '[DIAG] reportHistory ${ok ? 'ok' : 'failed'} '
+              'http=${res.statusCode} aid=${ctx.aid} cid=${ctx.cid} '
+              'progress=$progress completed=$completed: ${res.data}',
+            );
+          }
+          return ok;
+        });
   }
 
   static Future<void> medialistHistory({

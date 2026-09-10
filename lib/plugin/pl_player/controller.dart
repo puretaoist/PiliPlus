@@ -1539,7 +1539,22 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             ctx: ctx,
             progress: progress,
             completed: isEnd,
-          );
+          ).then((historyOk) {
+            // 双保险：历史上报失败时回退 web 心跳（它同样会写历史），
+            // 避免任何一条链路失败就断记
+            if (!historyOk) {
+              return VideoHttp.heartBeat(
+                aid: aid ?? _aid,
+                bvid: bvid ?? _bvid,
+                cid: cid ?? this.cid,
+                progress: progress,
+                epid: epid ?? _epid,
+                seasonId: seasonId ?? _seasonId,
+                subType: pgcType ?? _pgcType,
+                videoType: videoType ?? _videoType,
+              );
+            }
+          });
         });
       }
       return VideoHttp.heartBeat(
