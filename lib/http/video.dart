@@ -857,6 +857,10 @@ abstract final class VideoHttp {
       'is_audio_play': 2,
       // 官方会话级随机 8 位 hex；缺失会返回 -400 参数错误
       'polaris_action_id': ctx.polarisActionId,
+      // 官方把 extra Map 的每个 entry 作为独立表单参数注入
+      // （HeartbeatParams 构造末尾的 map 循环），而非 JSON 字符串；
+      // 这里两种形式都给，兼容新旧
+      'from_outer_spmid': ctx.fromSpmid,
       'extra': '{"from_outer_spmid":"${ctx.fromSpmid}"}',
       'track_id': ?ctx.trackId,
       'sid': ctx.seasonId ?? 0,
