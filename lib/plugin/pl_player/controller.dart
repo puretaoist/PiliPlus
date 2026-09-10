@@ -1533,6 +1533,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               videoType: videoType ?? _videoType,
             );
           }
+          // mobile 心跳只做归因不写观看历史，历史需单独上报
+          // （此前靠失败回退 web 心跳顺带记录，心跳打通后断记）
+          return VideoHttp.reportHistory(
+            ctx: ctx,
+            progress: progress,
+            completed: isEnd,
+          );
         });
       }
       return VideoHttp.heartBeat(

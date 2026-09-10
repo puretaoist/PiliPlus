@@ -796,6 +796,69 @@ abstract final class VideoHttp {
   static const String _statisticsAppAndroid =
       '{"appId":1,"platform":3,"version":"8.62.0","abtest":""}';
 
+  /// APP 播放历史上报（/x/v2/history/report）。
+  /// mobile 心跳（/x/report/heartbeat/mobile）只做实时归因，**不写观看历史**；
+  /// 历史必须单独上报本接口 —— 此前依赖"心跳失败→回退 web 心跳"顺带记录，
+  /// 心跳打通后该回退不再触发，导致历史断记（真机反馈）。
+  /// 参数对齐官方 HeartbeatParams 的姊妹接口 /x/v2/history/report。
+  static Future<bool> reportHistory({
+    required VideoReportContext ctx,
+    required int progress,
+    required bool completed,
+  }) async {
+    final account = Accounts.get(AccountType.main);
+    if (!account.isLogin) return false;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final params = <String, dynamic>{
+      'aid': ctx.aid,
+      'cid': ctx.cid,
+      'duration': ctx.videoDuration,
+      'progress': completed ? -1 : progress.clamp(0, 1 << 30),
+      'type': ctx.type,
+      'device_ts': now,
+      'start_ts': ctx.startTs,
+      'source': 'player-old',
+      'scene': 'front',
+      'sid': ctx.seasonId ?? 0,
+      'epid': ctx.epId ?? 0,
+      'sub_type': ctx.subType ?? 0,
+      // 公参：本地实测缺 platform/build 等会被判 -400（bbspace 由
+      // restClient 自动注入，这里需手动带全）
+      'build': 8620300,
+      'mobi_app': 'android',
+      'platform': 'android',
+      'c_locale': 'zh-Hans_CN',
+      's_locale': 'zh-Hans_CN',
+      'channel': '360',
+      'disable_rcmd': 0,
+      'statistics': _statisticsAppAndroid,
+      'ts': now,
+      'access_key': ?account.accessKey,
+      'appkey': _appKeyAndroid,
+    };
+    params['sign'] = _mobileSign(params);
+    return (_heartbeatDio ??= Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+        validateStatus: (status) => status != null,
+      ),
+    ))
+        .post(
+          'https://api.bilibili.com/x/v2/history/report',
+          data: params,
+          options: Options(
+            contentType: Headers.formUrlEncodedContentType,
+            headers: {
+              'user-agent': _userAgentAppAndroid,
+              'app-key': 'android64',
+              'env': 'prod',
+            },
+          ),
+        )
+        .then((res) => res.data is Map && res.data['code'] == 0);
+  }
+
   /// app 接口签名：与 dio 的 form 传输编码**严格一致**（含空值 k=、
   /// encodeQueryComponent 规则），服务端按收到的参数验签。
   /// 不能用 AppSign.appSign：它对空字符串省略等号（k 而非 k=），与实际
