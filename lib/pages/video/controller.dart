@@ -824,10 +824,9 @@ class VideoDetailController extends GetxController
           plPlayerController.appStreamHeaders = true;
           return res;
         }
-        // 拉不通多为 CDN 地域/临时策略，静默回退即可，不必每次进视频都弹提示
-        if (kDebugMode) {
-          debugPrint('grpc stream unreachable, fallback to web');
-        }
+        // 拉不通多为 CDN 地域/临时策略，静默回退即可，不必每次进视频都弹提示。
+        // 记进可导出日志，便于排查"为什么没走 4K/app 流"
+        Utils.reportError('[DIAG] grpc stream unreachable, fallback to web');
         return _webVideoUrl(quality);
       }
       // gRPC 取流失败时回退到 web 接口，避免开关打开后完全无法播放
@@ -912,9 +911,7 @@ class VideoDetailController extends GetxController
         debugPrint('probe stream ${r.statusCode}: $url');
       }
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('probe stream error: $e');
-      }
+      Utils.reportError('[DIAG] probe stream error: $e');
     }
     return false;
   }

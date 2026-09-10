@@ -765,6 +765,9 @@ abstract final class VideoHttp {
     );
   }
 
+  /// 本次会话是否已记录过心跳结果（避免高频写日志）
+  static bool _heartbeatLogged = false;
+
   /// 移动端心跳（/x/report/heartbeat/mobile），带推荐归因。
   ///
   /// [completed] 为 true 表示"会话结束立即上报"（退出/完成，跳过节流）。
@@ -846,7 +849,18 @@ abstract final class VideoHttp {
             },
           ),
         )
-        .then((res) => res.data is Map && res.data['code'] == 0);
+        .then((res) {
+          final ok = res.data is Map && res.data['code'] == 0;
+          // 归因心跳是否被服务端接受是排查推荐效果的关键依据：
+          // 首次结果与每次失败都写进可导出的日志
+          if (!ok || !_heartbeatLogged) {
+            _heartbeatLogged = true;
+            Utils.reportError(
+              '[DIAG] mobileHeartBeat ${ok ? 'ok' : 'failed'}: ${res.data}',
+            );
+          }
+          return ok;
+        });
   }
 
   static Future<void> medialistHistory({

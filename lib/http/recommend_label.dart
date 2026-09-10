@@ -7,6 +7,7 @@ import 'package:PiliPlus/http/login.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/models_new/recommend_label/recommend_label.dart';
 import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/utils.dart';
 import 'package:dio/dio.dart';
 
 /// 官方「内容偏好调节」接口
@@ -52,6 +53,7 @@ abstract final class RecommendLabelHttp {
       return Success(fromJson(const {}));
     }
     final msg = res.data is Map ? res.data['message'] : res.toString();
+    Utils.reportError('[DIAG] uinterest failed: ${res.data}');
     return Error(msg ?? '请求失败');
   }
 
@@ -102,6 +104,12 @@ abstract final class RecommendLabelHttp {
       return const Success(null);
     }
     final msg = res.data is Map ? res.data['message'] : res.toString();
+    // action 的取值是逆向推断的（1=保存 / 2=恢复默认），提交失败时把
+    // 请求与响应一并记进可导出日志，便于真机校准
+    Utils.reportError(
+      '[DIAG] managerLabel failed action=$action '
+      'fixed=$fixedLabel unfixed=$unfixedLabel resp=${res.data}',
+    );
     return Error(msg ?? '提交失败');
   }
 }

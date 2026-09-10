@@ -4,6 +4,7 @@ import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/home/rcmd/result.dart';
 import 'package:PiliPlus/pages/common/common_list_controller.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
+import 'package:PiliPlus/utils/utils.dart';
 
 class RcmdController extends CommonListController {
   late bool enableSaveLastData = Pref.enableSaveLastData;
@@ -22,6 +23,9 @@ class RcmdController extends CommonListController {
   final List<int> _seen = [];
   final Set<int> _seenSet = {};
   bool filterSeen = Pref.rcmdFilterSeen;
+
+  /// 本次会话是否已记录过沉底分布（避免高频写日志）
+  static bool _demoteLogged = false;
 
   @override
   bool get isEnd => false;
@@ -163,6 +167,14 @@ class RcmdController extends CommonListController {
           ..clear()
           ..addAll(fresh)
           ..addAll(seen);
+      }
+      // 沉底分布写进可导出日志：用于判断 seen 是否异常膨胀导致内容枯竭
+      if (!_demoteLogged || fresh.isEmpty) {
+        _demoteLogged = true;
+        Utils.reportError(
+          '[DIAG] rcmd demote fresh=${fresh.length} seen=${seen.length} '
+          'total=${_seen.length}',
+        );
       }
       _markSeen(ids);
     }
