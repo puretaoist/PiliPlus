@@ -1,10 +1,8 @@
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/home/rcmd/result.dart';
 import 'package:PiliPlus/pages/common/common_list_controller.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
-import 'package:PiliPlus/utils/utils.dart';
 
 class RcmdController extends CommonListController {
   late bool enableSaveLastData = Pref.enableSaveLastData;
@@ -17,89 +15,14 @@ class RcmdController extends CommonListController {
   int _flush = 0;
   bool _isRefresh = true;
 
-  // 已推过的内容（aid）。第三方客户端不做曝光上报，服务端不知道"这条我看过了"，
-  // 因此本地记一份，避免刷新后反复推同样的视频
-  static const int _maxSeen = 2000;
-  final List<int> _seen = [];
-  final Set<int> _seenSet = {};
-  bool filterSeen = Pref.rcmdFilterSeen;
-
-  /// 本次会话是否已记录过沉底分布（避免高频写日志）
-  static bool _demoteLogged = false;
-
   @override
   bool get isEnd => false;
 
   @override
   void onInit() {
     super.onInit();
-    try {
-      _seen.addAll(Pref.rcmdSeenAids);
-      _seenSet.addAll(_seen);
-      // 记录跨会话恢复情况：若始终为 0 而上一会话有标记，说明持久化链路有问题
-      Utils.reportError('[DIAG] rcmd seen loaded: ${_seen.length}');
-    } catch (e) {
-      // 记录损坏时当作空处理，绝不让首页崩掉
-      debugPrint('load rcmd seen failed: $e');
-      _seen.clear();
-      _seenSet.clear();
-    }
     page = 0;
     queryData();
-  }
-
-  void setFilterSeen(bool enabled) {
-    filterSeen = enabled;
-    if (!enabled) {
-      clearSeen();
-    }
-  }
-
-  /// 清空已推记录（设置里关闭过滤，或想让推荐"重置"时用）
-  void clearSeen() {
-    _seen.clear();
-    _seenSet.clear();
-    try {
-      Pref.setRcmdSeenAids(_seen);
-    } catch (e) {
-      debugPrint('save rcmd seen failed: $e');
-    }
-  }
-
-  /// 本次会话是否已记录过持久化成功（避免高频写日志）
-  static bool _persistLogged = false;
-
-  void _markSeen(List<int> aids) {
-    if (aids.isEmpty) return;
-    try {
-      var added = false;
-      for (final aid in aids) {
-        if (_seenSet.add(aid)) {
-          _seen.add(aid);
-          added = true;
-        }
-      }
-      // 没有新增就别写盘，避免每次下拉都全量序列化
-      if (!added) return;
-      if (_seen.length > _maxSeen) {
-        final overflow = _seen.length - _maxSeen;
-        for (var i = 0; i < overflow; i++) {
-          _seenSet.remove(_seen[i]);
-        }
-        _seen.removeRange(0, overflow);
-      }
-      Pref.setRcmdSeenAids(_seen);
-      if (!_persistLogged) {
-        _persistLogged = true;
-        // 确认写盘链路：下次会话的 "seen loaded" 应与这里一致
-        Utils.reportError(
-          '[DIAG] rcmd seen persisted: ${_seen.length}',
-        );
-      }
-    } catch (e) {
-      // 持久化失败只影响去重记忆，绝不能让首页崩掉
-      Utils.reportError('[DIAG] save rcmd seen failed: $e');
-    }
   }
 
   @override
@@ -140,50 +63,6 @@ class RcmdController extends CommonListController {
 
   @override
   void handleListResponse(List dataList) {
-    // 去重沉底必须放在"保留上次推荐"块之前：下面上游的
-    // dataList.addAll(response) 存在集合类型检查异常（真机日志已证实，
-    // 见 [DIAG] 记录），若它先执行，会把我们的 _markSeen 一并中断，
-    // 导致 seen 永远无法持久化（total=0）。放最前面保证标记流程独立。
-    if (filterSeen && dataList.isNotEmpty) {
-      // 已看过的内容"沉底"而不是删除。
-      // 第三方客户端的推荐池有限、服务端必然重推，删除式过滤会让列表
-      // 越刷越短甚至刷空；降权排序既保证新内容排在前面（去重的实际收益），
-      // 又保证首页永远有内容，从机制上不可能刷空。
-      final fresh = <dynamic>[];
-      final seen = <dynamic>[];
-      final ids = <int>[];
-      for (final e in dataList) {
-        final id = e is RcmdVideoItemAppModel ? e.id : null;
-        if (id != null) {
-          ids.add(id);
-        }
-        if (id != null && _seenSet.contains(id)) {
-          seen.add(e);
-        } else {
-          fresh.add(e);
-        }
-      }
-      if (seen.isNotEmpty) {
-        // 注意：必须用索引写回而不是 clear+addAll。dataList 运行时是
-        // List<RcmdVideoItemAppModel>，addAll(List<dynamic>) 会触发集合
-        // 类型检查抛异常（且发生在 clear 之后 → 首页空白，见导出日志）；
-        // 逐索引赋值只做元素类型检查，元素本身来自该列表，安全
-        final merged = [...fresh, ...seen];
-        for (var i = 0; i < merged.length; i++) {
-          dataList[i] = merged[i];
-        }
-      }
-      // 沉底分布写进可导出日志：用于判断 seen 是否异常膨胀导致内容枯竭
-      if (!_demoteLogged || fresh.isEmpty) {
-        _demoteLogged = true;
-        Utils.reportError(
-          '[DIAG] rcmd demote fresh=${fresh.length} seen=${seen.length} '
-          'total=${_seen.length}',
-        );
-      }
-      _markSeen(ids);
-    }
-
     if (enableSaveLastData && page == 0) {
       if (loadingState.value case Success(:final response)) {
         if (response != null && response.isNotEmpty) {

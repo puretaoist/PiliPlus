@@ -49,20 +49,6 @@ List<SettingsModel> get recommendSettings => [
       }
     },
   ),
-  SwitchModel(
-    title: '过滤已推荐过的内容',
-    subtitle: '不重复展示此前推过的视频，最多记录 2000 条',
-    leading: const Icon(Icons.filter_alt_outlined),
-    setKey: SettingBoxKey.rcmdFilterSeen,
-    defaultVal: true,
-    onChanged: (value) {
-      try {
-        Get.find<RcmdController>().setFilterSeen(value);
-      } catch (e) {
-        if (kDebugMode) debugPrint('$e');
-      }
-    },
-  ),
   NormalModel(
     title: '内容偏好调节',
     subtitle: '管理首页推荐的内容偏好标签，与官方账号互通',

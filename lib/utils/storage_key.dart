@@ -56,8 +56,6 @@ abstract final class SettingBoxKey {
       exemptFilterForFollowed = 'exemptFilterForFollowed',
       banWordForRecommend = 'banWordForRecommend',
       applyFilterToRelatedVideos = 'applyFilterToRelatedVideos',
-      rcmdFilterSeen = 'rcmdFilterSeen',
-      rcmdSeenAids = 'rcmdSeenAids',
       autoUpdate = 'autoUpdate',
       maxCacheSize = 'maxCacheSize',
       defaultShowComment = 'defaultShowComment',
