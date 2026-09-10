@@ -1,9 +1,16 @@
 name: Build Dev APK (fork)
 
-# 只构建 dev 变体：包名带 .dev 后缀，可与官方版共存，不需要签名密钥
-# 用法：Actions -> Build Dev APK (fork) -> Run workflow
+# 构建 dev 变体：包名带 .dev 后缀，可与官方版共存，不需要签名密钥
+# 触发：每次 push 到 main 自动构建；也可在 Actions 页手动触发
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
+
+# 连续 push 时取消进行中的旧构建，避免排队堆积、节省 Actions 额度
+concurrency:
+  group: build-dev-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   android-dev:
