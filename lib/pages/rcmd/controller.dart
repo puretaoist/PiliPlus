@@ -191,7 +191,13 @@ class RcmdController extends CommonListController {
             lastRefreshAt = dataList.length;
           }
           if (response.length > 200) {
-            dataList.addAll(response.take(50));
+            // upstream bug 修复（行为等价）：take(50) 返回 Iterable<dynamic>，
+            // 而 dataList 运行时是 List<RcmdVideoItemXxx>，addAll 触发集合类型
+            // 检查抛异常 → loadingState 不更新 → 刷新失败（保留数据 >200 条时
+            // 必现，真机日志已证实）。逐元素写入规避。
+            for (final e in response.take(50)) {
+              dataList.add(e);
+            }
           } else {
             dataList.addAll(response);
           }

@@ -768,6 +768,9 @@ abstract final class VideoHttp {
   /// 本次会话是否已记录过心跳结果（避免高频写日志）
   static bool _heartbeatLogged = false;
 
+  /// 心跳专用 Dio（绕开全局拦截器，见 mobileHeartBeat 注释）
+  static Dio? _heartbeatDio;
+
   /// 移动端心跳（/x/report/heartbeat/mobile），带推荐归因。
   ///
   /// [completed] 为 true 表示"会话结束立即上报"（退出/完成，跳过节流）。
@@ -834,7 +837,18 @@ abstract final class VideoHttp {
       appkey: '1d8b6e7d45233436',
       appsec: '560c52ccd288fed045859ed18bffd973',
     );
-    return Request()
+    // 必须用独立 Dio 而不是 Request()：全局拦截器（AccountManager）会给请求
+    // 覆盖账号 headers、补 web referer、并移除 sign 重新签名 —— app 身份错乱
+    // 触发风控（真机日志：连续 badResponse）。bbspace 的心跳同样是不带
+    // cookie/referer 的干净 app 请求。
+    return (_heartbeatDio ??= Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+        // 4xx（如 412 风控）也保留响应体，供日志定位
+        validateStatus: (status) => status != null,
+      ),
+    ))
         .post(
           'https://app.bilibili.com/x/report/heartbeat/mobile',
           data: params,
@@ -852,11 +866,12 @@ abstract final class VideoHttp {
         .then((res) {
           final ok = res.data is Map && res.data['code'] == 0;
           // 归因心跳是否被服务端接受是排查推荐效果的关键依据：
-          // 首次结果与每次失败都写进可导出的日志
+          // 首次结果与每次失败都写进可导出的日志（带 HTTP 状态码）
           if (!ok || !_heartbeatLogged) {
             _heartbeatLogged = true;
             Utils.reportError(
-              '[DIAG] mobileHeartBeat ${ok ? 'ok' : 'failed'}: ${res.data}',
+              '[DIAG] mobileHeartBeat ${ok ? 'ok' : 'failed'} '
+              'http=${res.statusCode}: ${res.data}',
             );
           }
           return ok;
