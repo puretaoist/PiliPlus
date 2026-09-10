@@ -944,7 +944,11 @@ abstract final class VideoHttp {
   /// mobile 心跳（/x/report/heartbeat/mobile）只做实时归因，**不写观看历史**；
   /// 历史必须单独上报本接口 —— 此前依赖"心跳失败→回退 web 心跳"顺带记录，
   /// 心跳打通后该回退不再触发，导致历史断记（真机反馈）。
-  /// 参数对齐官方 HeartbeatParams 的姊妹接口 /x/v2/history/report。
+  ///
+  /// 认证双轨（真机日志实证：cookie 登录（无 access_key）时 APP 方式会被
+  /// 服务端按未登录拒绝，返回中文"请求错误"）：
+  /// - 有 access_key → APP 方式（表单 + appkey/sign）
+  /// - 无 access_key（cookie 登录）→ web 方式（Request() 自带 cookie + csrf）
   static Future<bool> reportHistory({
     required VideoReportContext ctx,
     required int progress,
@@ -953,11 +957,44 @@ abstract final class VideoHttp {
     final account = Accounts.get(AccountType.main);
     if (!account.isLogin) return false;
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final progressValue = completed ? -1 : progress.clamp(0, 1 << 30);
+
+    final accessKey = account.accessKey;
+    if (accessKey == null || accessKey.isEmpty) {
+      // cookie 登录：走 web 端同一接口（Request() 自带 SESSDATA cookie）
+      return Request()
+          .post(
+            'https://api.bilibili.com/x/v2/history/report',
+            data: {
+              'aid': ctx.aid,
+              'cid': ctx.cid,
+              'progress': progressValue,
+              'type': ctx.type,
+              'epid': ?ctx.epId,
+              'sid': ?ctx.seasonId,
+              'csrf': Accounts.heartbeat.csrf,
+            },
+            options: Options(contentType: Headers.formUrlEncodedContentType),
+          )
+          .then((res) {
+            final ok = res.data is Map && res.data['code'] == 0;
+            if (!ok || !_historyLogged) {
+              _historyLogged = true;
+              Utils.reportError(
+                '[DIAG] reportHistory(cookie) ${ok ? 'ok' : 'failed'} '
+                'aid=${ctx.aid} progress=$progressValue: ${res.data}',
+              );
+            }
+            return ok;
+          });
+    }
+
+    // APP 方式：access_key 身份
     final params = <String, dynamic>{
       'aid': ctx.aid,
       'cid': ctx.cid,
       'duration': ctx.videoDuration,
-      'progress': completed ? -1 : progress.clamp(0, 1 << 30),
+      'progress': progressValue,
       'type': ctx.type,
       'device_ts': now,
       'start_ts': ctx.startTs,
@@ -977,7 +1014,7 @@ abstract final class VideoHttp {
       'disable_rcmd': 0,
       'statistics': _statisticsAppAndroid,
       'ts': now,
-      'access_key': ?account.accessKey,
+      'access_key': accessKey,
       'appkey': _appKeyAndroid,
     };
     params['sign'] = _mobileSign(params);
