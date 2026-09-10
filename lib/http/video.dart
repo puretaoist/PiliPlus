@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
     show ReplyInfo;
@@ -771,6 +773,25 @@ abstract final class VideoHttp {
   /// 心跳专用 Dio（绕开全局拦截器，见 mobileHeartBeat 注释）
   static Dio? _heartbeatDio;
 
+  /// 手机版身份的 appkey/appsec（社区公开值，见 bilibili-API-collect）
+  static const String _appKeyAndroid = '1d8b6e7d45233436';
+  static const String _appSecAndroid = '560c52ccd288fed045859ed18bffd973';
+
+  /// app 接口签名：与 dio 的 form 传输编码**严格一致**（含空值 k=、
+  /// encodeQueryComponent 规则），服务端按收到的参数验签。
+  /// 不能用 AppSign.appSign：它对空字符串省略等号（k 而非 k=），与实际
+  /// 发送不一致导致验签失败（code -3，真机日志已证实）
+  static String _mobileSign(Map<String, dynamic> params) {
+    final map = <String, String>{
+      for (final e in params.entries) e.key: e.value?.toString() ?? '',
+      'appkey': _appKeyAndroid,
+    };
+    final query = (map.keys.toList()..sort())
+        .map((k) => '$k=${Uri.encodeQueryComponent(map[k]!)}')
+        .join('&');
+    return md5.convert(utf8.encode('$query$_appSecAndroid')).toString();
+  }
+
   /// 移动端心跳（/x/report/heartbeat/mobile），带推荐归因。
   ///
   /// [completed] 为 true 表示"会话结束立即上报"（退出/完成，跳过节流）。
@@ -829,14 +850,11 @@ abstract final class VideoHttp {
       'mobi_app': 'android',
       'platform': 'android',
       's_locale': 'zh_CN',
+      'ts': now,
       'access_key': ?account.accessKey,
     };
     // 手机版身份的签名（appkey/appsec 必须与 mobi_app=android 匹配）
-    AppSign.appSign(
-      params,
-      appkey: '1d8b6e7d45233436',
-      appsec: '560c52ccd288fed045859ed18bffd973',
-    );
+    params['sign'] = _mobileSign(params);
     // 必须用独立 Dio 而不是 Request()：全局拦截器（AccountManager）会给请求
     // 覆盖账号 headers、补 web referer、并移除 sign 重新签名 —— app 身份错乱
     // 触发风控（真机日志：连续 badResponse）。bbspace 的心跳同样是不带
