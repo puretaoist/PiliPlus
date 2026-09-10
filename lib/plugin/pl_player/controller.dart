@@ -1509,7 +1509,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     Future<void> send() {
       final ctx = reportContext;
       if (ctx != null && (videoType ?? _videoType) == VideoType.ugc) {
-        final isEnd = type == HeartBeatType.completed || progress < 0;
+        // 仅"真看完"才算结束：completed 类型在切换/退出视频时也会触发，
+        // 但此时 progress 仍是当前值；只有播放到位（下方 case .completed
+        // 中已置 progress=-1）才应标记看完，否则历史里所有视频都变"已看完"
+        // （真机反馈）
+        final isEnd = progress < 0;
         // position 每秒变化都会走到这里；官方移动端心跳是长间隔（约 60s），
         // 每秒打一次会被风控且费电。非结束状态按间隔节流，进度只在内存累积
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
