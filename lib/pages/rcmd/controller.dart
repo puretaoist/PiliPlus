@@ -63,11 +63,15 @@ class RcmdController extends CommonListController {
   void _markSeen(List<int> aids) {
     if (aids.isEmpty) return;
     try {
+      var added = false;
       for (final aid in aids) {
         if (_seenSet.add(aid)) {
           _seen.add(aid);
+          added = true;
         }
       }
+      // 没有新增就别写盘，避免每次下拉都全量序列化
+      if (!added) return;
       if (_seen.length > _maxSeen) {
         final overflow = _seen.length - _maxSeen;
         for (var i = 0; i < overflow; i++) {
@@ -136,31 +140,31 @@ class RcmdController extends CommonListController {
     }
 
     if (filterSeen && dataList.isNotEmpty) {
-      final before = dataList.length;
-      final kept = <dynamic>[];
+      // 已看过的内容"沉底"而不是删除。
+      // 第三方客户端的推荐池有限、服务端必然重推，删除式过滤会让列表
+      // 越刷越短甚至刷空；降权排序既保证新内容排在前面（去重的实际收益），
+      // 又保证首页永远有内容，从机制上不可能刷空。
+      final fresh = <dynamic>[];
+      final seen = <dynamic>[];
+      final ids = <int>[];
       for (final e in dataList) {
         final id = e is RcmdVideoItemAppModel ? e.id : null;
-        if (id != null && _seenSet.contains(id)) {
-          continue;
+        if (id != null) {
+          ids.add(id);
         }
-        kept.add(e);
+        if (id != null && _seenSet.contains(id)) {
+          seen.add(e);
+        } else {
+          fresh.add(e);
+        }
       }
-      // 安全阀：推荐池有限，若绝大多数都推过则本轮不过滤，避免首页刷空；
-      // 且整轮跳过标记，避免把旧内容反复写进记录
-      final freshEnough = kept.isNotEmpty && kept.length * 10 >= before * 3;
-      if (freshEnough) {
+      if (seen.isNotEmpty) {
         dataList
           ..clear()
-          ..addAll(kept);
-        final ids = <int>[];
-        for (final e in dataList) {
-          final id = e is RcmdVideoItemAppModel ? e.id : null;
-          if (id != null) {
-            ids.add(id);
-          }
-        }
-        _markSeen(ids);
+          ..addAll(fresh)
+          ..addAll(seen);
       }
+      _markSeen(ids);
     }
 
     _flush++;
