@@ -1,13 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
-
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
     show ReplyInfo;
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
+import 'package:PiliPlus/utils/bili_report_sign.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/login.dart';
@@ -780,9 +779,10 @@ abstract final class VideoHttp {
   /// 心跳专用 Dio（绕开全局拦截器，见 mobileHeartBeat 注释）
   static Dio? _heartbeatDio;
 
-  /// 手机版身份的 appkey/appsec（社区公开值，见 bilibili-API-collect）
-  static const String _appKeyAndroid = '1d8b6e7d45233436';
-  static const String _appSecAndroid = '560c52ccd288fed045859ed18bffd973';
+  /// 手机版身份的签名：委托 BiliReportSign（算法与官方验签样例一致，
+  /// 有单元测试守护 test/utils/bili_report_sign_test.dart）
+  static String _mobileSign(Map<String, dynamic> params) =>
+      BiliReportSign.sign(params);
 
   /// 心跳专用 UA：build/channel 与表单参数严格一致（对齐官方 8.62.0 形态）
   static const String _userAgentAppAndroid =
@@ -790,89 +790,11 @@ abstract final class VideoHttp {
       'model/android mobi_app/android build/8620300 channel/360 '
       'innerVer/8620300 osVer/15 network/2';
 
-  /// 心跳专用 statistics：version 与 UA/build 保持一致（8.62.0），
-  /// 避免同一请求里出现两个版本号（Constants.statisticsApp 是 8.43.0，
-  /// 供 fav/live 等沿用，此处不改动全局常量）
+  /// 心跳专用 statistics：version 与 UA/build 保持一致（8.62.0）
   static const String _statisticsAppAndroid =
       '{"appId":1,"platform":3,"version":"8.62.0","abtest":""}';
 
-  /// APP 播放历史上报（/x/v2/history/report）。
-  /// mobile 心跳（/x/report/heartbeat/mobile）只做实时归因，**不写观看历史**；
-  /// 历史必须单独上报本接口 —— 此前依赖"心跳失败→回退 web 心跳"顺带记录，
-  /// 心跳打通后该回退不再触发，导致历史断记（真机反馈）。
-  /// 参数对齐官方 HeartbeatParams 的姊妹接口 /x/v2/history/report。
-  static Future<bool> reportHistory({
-    required VideoReportContext ctx,
-    required int progress,
-    required bool completed,
-  }) async {
-    final account = Accounts.get(AccountType.main);
-    if (!account.isLogin) return false;
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final params = <String, dynamic>{
-      'aid': ctx.aid,
-      'cid': ctx.cid,
-      'duration': ctx.videoDuration,
-      'progress': completed ? -1 : progress.clamp(0, 1 << 30),
-      'type': ctx.type,
-      'device_ts': now,
-      'start_ts': ctx.startTs,
-      'source': 'player-old',
-      'scene': 'front',
-      'sid': ctx.seasonId ?? 0,
-      'epid': ctx.epId ?? 0,
-      'sub_type': ctx.subType ?? 0,
-      // 公参：本地实测缺 platform/build 等会被判 -400（bbspace 由
-      // restClient 自动注入，这里需手动带全）
-      'build': 8620300,
-      'mobi_app': 'android',
-      'platform': 'android',
-      'c_locale': 'zh-Hans_CN',
-      's_locale': 'zh-Hans_CN',
-      'channel': '360',
-      'disable_rcmd': 0,
-      'statistics': _statisticsAppAndroid,
-      'ts': now,
-      'access_key': ?account.accessKey,
-      'appkey': _appKeyAndroid,
-    };
-    params['sign'] = _mobileSign(params);
-    return (_heartbeatDio ??= Dio(
-      BaseOptions(
-        connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 10),
-        validateStatus: (status) => status != null,
-      ),
-    ))
-        .post(
-          'https://api.bilibili.com/x/v2/history/report',
-          data: params,
-          options: Options(
-            contentType: Headers.formUrlEncodedContentType,
-            headers: {
-              'user-agent': _userAgentAppAndroid,
-              'app-key': 'android64',
-              'env': 'prod',
-            },
-          ),
-        )
-        .then((res) => res.data is Map && res.data['code'] == 0);
-  }
-
-  /// app 接口签名：与 dio 的 form 传输编码**严格一致**（含空值 k=、
-  /// encodeQueryComponent 规则），服务端按收到的参数验签。
-  /// 不能用 AppSign.appSign：它对空字符串省略等号（k 而非 k=），与实际
-  /// 发送不一致导致验签失败（code -3，真机日志已证实）
-  static String _mobileSign(Map<String, dynamic> params) {
-    final map = <String, String>{
-      for (final e in params.entries) e.key: e.value?.toString() ?? '',
-      'appkey': _appKeyAndroid,
-    };
-    final query = (map.keys.toList()..sort())
-        .map((k) => '$k=${Uri.encodeQueryComponent(map[k]!)}')
-        .join('&');
-    return md5.convert(utf8.encode('$query$_appSecAndroid')).toString();
-  }
+  static const String _appKeyAndroid = BiliReportSign.appKeyAndroid;
 
   /// 移动端心跳（/x/report/heartbeat/mobile），带推荐归因。
   ///
@@ -1013,6 +935,69 @@ abstract final class VideoHttp {
           }
           return ok;
         });
+  }
+
+  /// APP 播放历史上报（/x/v2/history/report）。
+  /// mobile 心跳（/x/report/heartbeat/mobile）只做实时归因，**不写观看历史**；
+  /// 历史必须单独上报本接口 —— 此前依赖"心跳失败→回退 web 心跳"顺带记录，
+  /// 心跳打通后该回退不再触发，导致历史断记（真机反馈）。
+  /// 参数对齐官方 HeartbeatParams 的姊妹接口 /x/v2/history/report。
+  static Future<bool> reportHistory({
+    required VideoReportContext ctx,
+    required int progress,
+    required bool completed,
+  }) async {
+    final account = Accounts.get(AccountType.main);
+    if (!account.isLogin) return false;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final params = <String, dynamic>{
+      'aid': ctx.aid,
+      'cid': ctx.cid,
+      'duration': ctx.videoDuration,
+      'progress': completed ? -1 : progress.clamp(0, 1 << 30),
+      'type': ctx.type,
+      'device_ts': now,
+      'start_ts': ctx.startTs,
+      'source': 'player-old',
+      'scene': 'front',
+      'sid': ctx.seasonId ?? 0,
+      'epid': ctx.epId ?? 0,
+      'sub_type': ctx.subType ?? 0,
+      // 公参：本地实测缺 platform/build 等会被判 -400（bbspace 由
+      // restClient 自动注入，这里需手动带全）
+      'build': 8620300,
+      'mobi_app': 'android',
+      'platform': 'android',
+      'c_locale': 'zh-Hans_CN',
+      's_locale': 'zh-Hans_CN',
+      'channel': '360',
+      'disable_rcmd': 0,
+      'statistics': _statisticsAppAndroid,
+      'ts': now,
+      'access_key': ?account.accessKey,
+      'appkey': _appKeyAndroid,
+    };
+    params['sign'] = _mobileSign(params);
+    return (_heartbeatDio ??= Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+        validateStatus: (status) => status != null,
+      ),
+    ))
+        .post(
+          'https://api.bilibili.com/x/v2/history/report',
+          data: params,
+          options: Options(
+            contentType: Headers.formUrlEncodedContentType,
+            headers: {
+              'user-agent': _userAgentAppAndroid,
+              'app-key': 'android64',
+              'env': 'prod',
+            },
+          ),
+        )
+        .then((res) => res.data is Map && res.data['code'] == 0);
   }
 
   static Future<void> medialistHistory({
