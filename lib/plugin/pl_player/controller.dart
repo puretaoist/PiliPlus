@@ -1517,7 +1517,23 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           ctx.updateProgress(progress);
           return Future.value();
         }
-        return VideoHttp.mobileHeartBeat(ctx, progress, completed: isEnd);
+        return VideoHttp.mobileHeartBeat(ctx, progress, completed: isEnd)
+            .then((ok) {
+          if (!ok) {
+            // 归因心跳被服务端拒绝（真机日志显示 HTTP 层 badResponse，
+            // 疑似风控）。回退 web 心跳，保证进度上报与历史记录不丢
+            return VideoHttp.heartBeat(
+              aid: aid ?? _aid,
+              bvid: bvid ?? _bvid,
+              cid: cid ?? this.cid,
+              progress: progress,
+              epid: epid ?? _epid,
+              seasonId: seasonId ?? _seasonId,
+              subType: pgcType ?? _pgcType,
+              videoType: videoType ?? _videoType,
+            );
+          }
+        });
       }
       return VideoHttp.heartBeat(
         aid: aid ?? _aid,

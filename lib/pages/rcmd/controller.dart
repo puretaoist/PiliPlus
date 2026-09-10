@@ -163,10 +163,14 @@ class RcmdController extends CommonListController {
         }
       }
       if (seen.isNotEmpty) {
-        dataList
-          ..clear()
-          ..addAll(fresh)
-          ..addAll(seen);
+        // 注意：必须用索引写回而不是 clear+addAll。dataList 运行时是
+        // List<RcmdVideoItemAppModel>，addAll(List<dynamic>) 会触发集合
+        // 类型检查抛异常（且发生在 clear 之后 → 首页空白，见导出日志）；
+        // 逐索引赋值只做元素类型检查，元素本身来自该列表，安全
+        final merged = [...fresh, ...seen];
+        for (var i = 0; i < merged.length; i++) {
+          dataList[i] = merged[i];
+        }
       }
       // 沉底分布写进可导出日志：用于判断 seen 是否异常膨胀导致内容枯竭
       if (!_demoteLogged || fresh.isEmpty) {
