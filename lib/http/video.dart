@@ -1050,6 +1050,44 @@ abstract final class VideoHttp {
               'progress=$progress completed=$completed: ${res.data}',
             );
           }
+          if (!ok) {
+            // APP 方式被拒：扫码签发的 access_key 与 android appkey 身份
+            // 不匹配时服务端会返回 -400 请求错误（心跳宽松/历史严格）。
+            // 回退 cookie 方式（SESSDATA + csrf，web 端长期验证的路径）
+            return _reportHistoryByCookie(ctx, progressValue);
+          }
+          return ok;
+        });
+  }
+
+  /// cookie 身份的历史上报（web 端同一接口，Request() 自带 SESSDATA）
+  static Future<bool> _reportHistoryByCookie(
+    VideoReportContext ctx,
+    int progressValue,
+  ) {
+    return Request()
+        .post(
+          'https://api.bilibili.com/x/v2/history/report',
+          data: {
+            'aid': ctx.aid,
+            'cid': ctx.cid,
+            'progress': progressValue,
+            'type': ctx.type,
+            'epid': ?ctx.epId,
+            'sid': ?ctx.seasonId,
+            'csrf': Accounts.heartbeat.csrf,
+          },
+          options: Options(contentType: Headers.formUrlEncodedContentType),
+        )
+        .then((res) {
+          final ok = res.data is Map && res.data['code'] == 0;
+          if (!ok || !_historyLogged) {
+            _historyLogged = true;
+            Utils.reportError(
+              '[DIAG] reportHistory(cookie) ${ok ? 'ok' : 'failed'} '
+              'aid=${ctx.aid} progress=$progressValue: ${res.data}',
+            );
+          }
           return ok;
         });
   }
