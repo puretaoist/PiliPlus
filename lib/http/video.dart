@@ -784,6 +784,12 @@ abstract final class VideoHttp {
   static const String _appKeyAndroid = '1d8b6e7d45233436';
   static const String _appSecAndroid = '560c52ccd288fed045859ed18bffd973';
 
+  /// 心跳专用 UA：build/channel 与表单参数严格一致（对齐官方 8.62.0 形态）
+  static const String _userAgentAppAndroid =
+      'Mozilla/5.0 BiliDroid/8.62.0 (bbcallen@gmail.com) os/android '
+      'model/android mobi_app/android build/8620300 channel/360 '
+      'innerVer/8620300 osVer/15 network/2';
+
   /// app 接口签名：与 dio 的 form 传输编码**严格一致**（含空值 k=、
   /// encodeQueryComponent 规则），服务端按收到的参数验签。
   /// 不能用 AppSign.appSign：它对空字符串省略等号（k 而非 k=），与实际
@@ -854,11 +860,15 @@ abstract final class VideoHttp {
       'list_play_time': 0,
       'miniplayer_play_time': 0,
       'build': 8620300,
-      'c_locale': 'zh_CN',
-      'channel': 'master',
+      // app 公参对齐 bbspace BiliRestParamBuilder.app（缺 disable_rcmd/statistics
+      // 会被判参数错误 -400；locale/channel 用官方取值）
+      'c_locale': 'zh-Hans_CN',
+      'channel': '360',
+      'disable_rcmd': 0,
       'mobi_app': 'android',
       'platform': 'android',
-      's_locale': 'zh_CN',
+      's_locale': 'zh-Hans_CN',
+      'statistics': Constants.statisticsApp,
       'ts': now,
       'access_key': ?account.accessKey,
     };
@@ -886,7 +896,9 @@ abstract final class VideoHttp {
             headers: {
               'env': 'prod',
               'app-key': 'android',
-              'user-agent': Constants.userAgentApp,
+              // UA 里的 build/channel 必须与表单参数一致（服务端会做一致性校验）：
+              // 沿用 Constants.userAgentApp 会带上旧的 build/8430300 channel/master
+              'user-agent': _userAgentAppAndroid,
               'x-bili-trace-id': Constants.traceId,
               'bili-http-engine': 'cronet',
             },
