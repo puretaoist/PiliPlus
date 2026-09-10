@@ -790,6 +790,12 @@ abstract final class VideoHttp {
       'model/android mobi_app/android build/8620300 channel/360 '
       'innerVer/8620300 osVer/15 network/2';
 
+  /// 心跳专用 statistics：version 与 UA/build 保持一致（8.62.0），
+  /// 避免同一请求里出现两个版本号（Constants.statisticsApp 是 8.43.0，
+  /// 供 fav/live 等沿用，此处不改动全局常量）
+  static const String _statisticsAppAndroid =
+      '{"appId":1,"platform":3,"version":"8.62.0","abtest":""}';
+
   /// app 接口签名：与 dio 的 form 传输编码**严格一致**（含空值 k=、
   /// encodeQueryComponent 规则），服务端按收到的参数验签。
   /// 不能用 AppSign.appSign：它对空字符串省略等号（k 而非 k=），与实际
@@ -870,7 +876,7 @@ abstract final class VideoHttp {
       'mobi_app': 'android',
       'platform': 'android',
       's_locale': 'zh-Hans_CN',
-      'statistics': Constants.statisticsApp,
+      'statistics': _statisticsAppAndroid,
       'ts': now,
       'access_key': ?account.accessKey,
     };
