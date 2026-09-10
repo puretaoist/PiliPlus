@@ -887,6 +887,9 @@ abstract final class VideoHttp {
       'ts': now,
       'access_key': ?account.accessKey,
     };
+    // appkey 必须同时出现在请求体里（服务端先校验必需参数，缺它会直接返回
+    // -400 而不会走到验签）—— 这也是真机持续 -400 的根因
+    params['appkey'] = _appKeyAndroid;
     // 手机版身份的签名（appkey/appsec 必须与 mobi_app=android 匹配）
     params['sign'] = _mobileSign(params);
     // 必须用独立 Dio 而不是 Request()：全局拦截器（AccountManager）会给请求
