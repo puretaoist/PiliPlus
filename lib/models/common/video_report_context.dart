@@ -27,6 +27,10 @@ class VideoReportContext {
   /// 播放会话 id，会话内固定
   final String session;
 
+  /// 推荐动作 id（polaris_action_id）：官方为会话级随机 8 位大写十六进制，
+  /// 缺失会被服务端判为参数错误（code -400，真机日志已证实）
+  final String polarisActionId;
+
   /// 会话开始的 unix 秒
   final int startTs;
 
@@ -53,6 +57,7 @@ class VideoReportContext {
     this.videoDuration = 0,
     this.quality = 0,
   }) : session = _genSession(),
+       polarisActionId = _genPolarisAction(),
        startTs = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
   void updateProgress(int progressSec) {
@@ -69,5 +74,12 @@ class VideoReportContext {
       sb.write(_random.nextInt(16).toRadixString(16));
     }
     return sb.toString();
+  }
+
+  /// 8 位大写十六进制（对齐官方 BiliSessionId.polarisAction 的形态）
+  static String _genPolarisAction() {
+    final value = _random.nextInt(0x7FFFFFFF) ^
+        DateTime.now().microsecondsSinceEpoch.hashCode;
+    return (value & 0xFFFFFFFF).toRadixString(16).padLeft(8, '0').toUpperCase();
   }
 }

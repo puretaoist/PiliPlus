@@ -822,7 +822,7 @@ abstract final class VideoHttp {
       'aid': ctx.aid,
       'cid': ctx.cid,
       'type': ctx.type,
-      'sub_type': ?ctx.subType,
+      'sub_type': ctx.subType ?? 0,
       'quality': ctx.quality,
       'video_duration': ctx.videoDuration,
       'play_type': 1,
@@ -837,6 +837,8 @@ abstract final class VideoHttp {
       'cur_language': '',
       'oaid': '',
       'is_auto_qn': 1,
+      // 官方会话级随机 8 位 hex；缺失会返回 -400 参数错误
+      'polaris_action_id': ctx.polarisActionId,
       'extra': '{"from_outer_spmid":"${ctx.fromSpmid}"}',
       'track_id': ?ctx.trackId,
       'report_flow_data': ?ctx.reportData,
@@ -893,12 +895,16 @@ abstract final class VideoHttp {
         .then((res) {
           final ok = res.data is Map && res.data['code'] == 0;
           // 归因心跳是否被服务端接受是排查推荐效果的关键依据：
-          // 首次结果与每次失败都写进可导出的日志（带 HTTP 状态码）
+          // 首次结果与每次失败都写进可导出的日志（带 HTTP 状态码；
+          // 失败时附参数快照 —— 参数类错误如 -400 只能靠它定位，凭据已剔除）
           if (!ok || !_heartbeatLogged) {
             _heartbeatLogged = true;
+            final snapshot = Map.of(params)
+              ..remove('access_key')
+              ..remove('sign');
             Utils.reportError(
               '[DIAG] mobileHeartBeat ${ok ? 'ok' : 'failed'} '
-              'http=${res.statusCode}: ${res.data}',
+              'http=${res.statusCode}: ${res.data} params=$snapshot',
             );
           }
           return ok;
