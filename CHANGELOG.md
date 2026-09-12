@@ -21,26 +21,43 @@
 
 **2. 日志刷屏 → 统一诊断日志出口 `lib/utils/diag_log.dart`**
 
+- 原则：**只记出问题的事**。正常播放/正常读写不在日志里留任何行 ——
+  排查时看到的每一行都应该是"有东西不对"，所以成功路径一律不写日志
 - `DiagLog.log(key, msg)`：同一个 key 前 3 次逐条记，之后每 50 次记一条并带
-  累计次数；`DiagLog.once()` 只记第一次（开关生效/通道切换）；`DiagLog.always()`
-  记低频关键成功路径
+  累计次数；`DiagLog.once()` 只记第一次（降级/回退/通道切换）
 - 有单元测试守护节流行为（`test/utils/diag_log_test.dart`，含"100 次只落 5 行"）
 
-**3. 把 fork 改过的每条链路都补上留痕**（此前只有心跳/历史/内容偏好有）
+**3. 给 fork 改过的每条链路补上"出问题才出声"的留痕**
 
-| 链路 | 新增日志（key） |
+| 链路 | 保留的日志（key，全部是异常/降级路径） |
 |---|---|
-| 4K/app 取流 | `grpc.ok` / `grpc.unreachable` / `grpc.error` / `grpc.probe.status` / `grpc.parse.ok` / `grpc.parse.empty` |
-| gRPC 传输 | `grpc.transport.err` / `grpc.transport.fail` / `grpc.status` |
-| 心跳 | `heartbeat.ok` / `heartbeat.fail`（带参数快照）/ `heartbeat.throttle` / `heartbeat.lastPacket` / `heartbeat.webFallback` |
-| 播放历史 | `history.cookie.ok/fail/err`、`history.app.ok/fail/err`（失败带完整参数）、`history.switch`、`history.bothFailed` |
-| 首页推荐 | `rcmd.mode` / `rcmd.fetch`（idx/flush/pull）/ `rcmd.result` / `rcmd.error` / `rcmd.append` |
-| 内容偏好 | `uinterest.open` / `uinterest.more` / `uinterest/mng ok`（成功也记）/ 失败带完整请求 |
-| 功耗 | `power.hz.pin` / `power.hz.restore` / `power.hz.empty` / `power.hz.err` |
-| 更新检查 | `update.skip` / `update.available` / `update.latest` / `update.fail` / `update.err` |
-| 日志导出 | 导出文件名与字节数（便于确认"这份日志覆盖到哪"） |
+| 4K/app 取流 | `grpc.unreachable`（探测不可达→回退 web）/ `grpc.error` / `grpc.probe.empty` / `grpc.probe.status` / `grpc.probe.err` / `grpc.parse.empty`（服务端没给可用档位） |
+| gRPC 传输 | `grpc.transport.err`（断网/超时）/ `grpc.transport.fail` / `grpc.status`（非 0 状态码）/ `grpc.status.err` |
+| 心跳 | `heartbeat.fail`（带参数快照）/ `heartbeat.webFallback` |
+| 播放历史 | `history.cookie.fail/err`、`history.app.fail/err`（带完整参数）、`history.switch`（换通道）、`history.bothFailed`、`history.webFallback` |
+| 首页推荐 | `rcmd.error`（含"保留旧数据 / 显示错误"的判定结果） |
+| 内容偏好 | `uinterest.fail`、`uinterest.open.fail`、`uinterest.mng.fail`（带完整请求） |
+| 功耗 | `power.hz.empty`（设备没有 ≤61Hz 档位，功能无法生效）/ `power.hz.err` |
+| 更新检查 | `update.fail` / `update.err` |
+| 日志导出 | `log.export.err` |
 
-**4. gRPC 传输层异常不再向上抛**
+**4. 首轮日志验收（装包后）确认全绿，据此删掉了成功路径的日志**
+
+装上新包后导出的 `piliplus_log_1789223730121.log`（22KB，旧日志是 721KB）里
+22 行全是"正常"，其中关键三条：
+
+- `uinterest/mng ok action=3` ×6、`action=6`、`action=7` → 内容偏好写接口在真机
+  上真的生效了（删自选 / 恢复默认 / 批量加三种 action 全 code=0）
+- `reportHistory(cookie) ok` 仅 1 行 → -400 刷屏消失，且没有再触发通道切换
+- 没有任何 `Null check operator` → 页面崩溃修复有效
+
+确认这些链路健康后，把它们的成功路径日志（`heartbeat.ok`、`history.*.ok`、
+`grpc.ok`、`grpc.parse.ok`、`rcmd.mode/fetch/result/append`、`uinterest.open/more`、
+`uinterest/mng ok`、`power.hz.pin/restore`、`update.skip/latest/available`、
+日志导出成功）全部删除，`DiagLog.always()` 一并移除。现在正常使用下日志应当
+**一行都不产生**。
+
+**5. gRPC 传输层异常不再向上抛**
 
 `GrpcReq.request` 约定返回 `LoadingState`，但传输异常（断网/超时/DNS）此前会
 直接抛出，4K 取流的"失败→回退 web"分支根本走不到。现在统一转成

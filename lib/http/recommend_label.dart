@@ -154,17 +154,12 @@ abstract final class RecommendLabelHttp {
       ),
     );
     if (res.data is Map && res.data['code'] == 0) {
-      // 内容偏好是用户手动操作触发的低频写，成功也记一条：
-      // 出现"提交成功但偏好没变"时，能对照日志确认服务端确实收下了
-      DiagLog.always(
-        'uinterest/mng ok action=$action fixed=${fixedLabel.join(',')} '
-        'unfixed=${unfixedLabel.join(',')} changed=${changedLabel ?? '-'}',
-      );
       return const Success(null);
     }
     final msg = res.data is Map ? res.data['message'] : res.toString();
-    // 提交失败时把请求与响应一并记进可导出日志，便于真机校准
-    DiagLog.always(
+    // 只在失败时记：把请求与响应一并写进可导出日志（成功不写）
+    DiagLog.log(
+      'uinterest.mng.fail',
       'uinterest/mng failed action=$action '
       'fixed=${fixedLabel.join(',')} unfixed=${unfixedLabel.join(',')} '
       'changed=$changedLabel resp=${res.data}',

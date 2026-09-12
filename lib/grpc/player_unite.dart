@@ -176,11 +176,6 @@ abstract final class PlayerUniteGrpc {
         '取流失败：服务端返回 $total 条流（dash=$dashCount, multi=$multiCount）',
       );
     }
-    DiagLog.once(
-      'grpc.parse.ok',
-      'playViewUnite 可用画质 ${grouped.keys.toList()..sort((a, b) => b.compareTo(a))}'
-      '（原始流 ${vod.streamList.length} 条）',
-    );
 
     // findAvailableVideoQuality 依赖“高画质在前”的顺序
     final qualities = grouped.keys.toList()..sort((a, b) => b.compareTo(a));

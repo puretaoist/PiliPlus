@@ -24,11 +24,6 @@ abstract final class Update {
     // 自构建版本（编译时未传 pili_release.json，buildTime 为 0）不检查更新：
     // 包名/签名与发布版不同，下载下来也覆盖不了
     if (BuildConfig.buildTime == 0) {
-      DiagLog.once(
-        'update.skip',
-        '更新检查：自构建版本（buildTime=0），跳过（包名/签名与发布版不同，'
-        '下载也覆盖不了）',
-      );
       if (!isAuto) {
         SmartDialog.showToast('当前为自构建版本，不检查更新');
       }
@@ -50,7 +45,6 @@ abstract final class Update {
         return;
       }
       if (res.data.isEmpty) {
-        DiagLog.log('update.empty', '更新检查：暂无可用版本');
         if (!isAuto) {
           SmartDialog.showToast('暂无可用版本');
         }
@@ -60,20 +54,10 @@ abstract final class Update {
       final int latest =
           DateTime.parse(data['created_at']).millisecondsSinceEpoch ~/ 1000;
       if (BuildConfig.buildTime >= latest) {
-        DiagLog.once(
-          'update.latest',
-          '更新检查：已是最新（本地 buildTime=${BuildConfig.buildTime} '
-          '≥ 远端 $latest）',
-        );
         if (!isAuto) {
           SmartDialog.showToast('已是最新版本');
         }
       } else {
-        DiagLog.once(
-          'update.available',
-          '更新检查：发现新版本 ${data['tag_name']}'
-          '（本地 buildTime=${BuildConfig.buildTime} < 远端 $latest）',
-        );
         SmartDialog.show(
           animationType: SmartAnimationType.centerFade_otherSlide,
           builder: (context) {

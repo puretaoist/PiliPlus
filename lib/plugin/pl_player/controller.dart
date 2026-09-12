@@ -1453,16 +1453,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (candidates.isEmpty) {
           DiagLog.once(
             'power.hz.empty',
-            '全屏降刷新率：设备无 ≤61Hz 的显示模式，跳过（可选 ${modes.length} 档）',
+            '全屏降刷新率未生效：设备无 ≤61Hz 的显示模式'
+            '（可选 ${modes.length} 档）',
           );
           return;
         }
         await FlutterDisplayMode.setPreferredMode(candidates.first);
-        DiagLog.once(
-          'power.hz.pin',
-          '全屏降刷新率 → ${candidates.first.refreshRate}Hz'
-          '（设备可选 ${modes.length} 档）',
-        );
       } else {
         final saved = GStorage.setting.get(SettingBoxKey.displayMode);
         DisplayMode? restore;
@@ -1476,11 +1472,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
         }
         await FlutterDisplayMode.setPreferredMode(restore ?? DisplayMode.auto);
-        DiagLog.once(
-          'power.hz.restore',
-          '退出全屏恢复刷新率 → '
-          '${restore == null ? 'auto' : '${restore.refreshRate}Hz'}',
-        );
       }
     } catch (e) {
       DiagLog.log('power.hz.err', '设置刷新率失败: $e');
@@ -1537,18 +1528,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         if (!isEnd && ctx.lastReportTs != 0 && now - ctx.lastReportTs < 60) {
           ctx.updateProgress(progress);
-          DiagLog.once(
-            'heartbeat.throttle',
-            '心跳节流生效：间隔 <60s 的上报被跳过（对齐官方节奏）',
-          );
           return Future.value();
-        }
-        if (isEnd) {
-          DiagLog.once(
-            'heartbeat.lastPacket',
-            '播放结束上报（progress=-1 → 才标记为已看完）aid=${ctx.aid} '
-            'cid=${ctx.cid} duration=${ctx.videoDuration}s',
-          );
         }
         return VideoHttp.mobileHeartBeat(ctx, progress, completed: isEnd)
             .then((ok) {

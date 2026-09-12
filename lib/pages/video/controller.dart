@@ -823,11 +823,6 @@ class VideoDetailController extends GetxController
         if (await _probeGrpcStream(response)) {
           // 标记来源，播放器据此决定 UA/Referer（app 流不能带 Referer）
           plPlayerController.appStreamHeaders = true;
-          DiagLog.once(
-            'grpc.ok',
-            'grpc app 取流成功 aid=$aid cid=${cid.value} qn=$quality '
-            '档位=${response.dash?.video?.length ?? 0} 条（app 流，不带 Referer）',
-          );
           return res;
         }
         // 拉不通多为 CDN 地域/临时策略，静默回退即可，不必每次进视频都弹提示。

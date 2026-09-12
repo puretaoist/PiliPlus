@@ -923,18 +923,9 @@ abstract final class VideoHttp {
         )
         .then((res) {
           final ok = res.data is Map && res.data['code'] == 0;
-          // 归因心跳是否被服务端接受是排查推荐效果的关键依据：
-          // 首次成功记一条，失败按 key 节流记录（带 HTTP 状态码与参数快照 ——
-          // 参数类错误如 -400 只能靠它定位，凭据已剔除）
-          if (ok) {
-            DiagLog.once(
-              'heartbeat.ok',
-              'mobileHeartBeat ok http=${res.statusCode} aid=${ctx.aid} '
-              'cid=${ctx.cid} type=${ctx.type} quality=${ctx.quality} '
-              'played=$progressSec/${ctx.videoDuration}s '
-              'track=${ctx.trackId ?? '-'} from=${ctx.fromSpmid}',
-            );
-          } else {
+          // 只在失败时记：成功路径不写日志（正常播放不该产生任何诊断行）。
+          // 失败要带参数快照 —— 参数类错误如 -400 没有快照就没法定位，凭据已剔除
+          if (!ok) {
             final snapshot = Map.of(params)
               ..remove('access_key')
               ..remove('sign');
@@ -1025,14 +1016,7 @@ abstract final class VideoHttp {
         )
         .then((res) {
           final ok = res.data is Map && res.data['code'] == 0;
-          if (ok) {
-            DiagLog.once(
-              'history.cookie.ok',
-              'reportHistory(cookie) ok aid=${ctx.aid} cid=${ctx.cid} '
-              'type=${ctx.type} duration=${ctx.videoDuration} '
-              'progress=$progressValue',
-            );
-          } else {
+          if (!ok) {
             DiagLog.log(
               'history.cookie.fail',
               'reportHistory(cookie) failed aid=${ctx.aid} cid=${ctx.cid} '
@@ -1127,12 +1111,6 @@ abstract final class VideoHttp {
               'reportHistory(app) failed http=${res.statusCode} '
               'aid=${ctx.aid} cid=${ctx.cid} duration=${ctx.videoDuration} '
               'progress=$progressValue resp=${res.data} params=$snapshot',
-            );
-          } else {
-            DiagLog.once(
-              'history.app.ok',
-              'reportHistory(app) ok aid=${ctx.aid} cid=${ctx.cid} '
-              'progress=$progressValue',
             );
           }
           return ok;

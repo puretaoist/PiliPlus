@@ -3,6 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// 守护 DiagLog 的节流行为：它决定真机日志会不会被同一个失败刷爆
 /// （历史问题：一次运行 514 行 `reportHistory failed`，日志 700KB）。
+///
+/// 约定：**只记出问题的事**——成功路径不写日志，日志里出现的每一行都应该
+/// 指示"有东西不对"。
 void main() {
   late List<String> out;
 
@@ -38,11 +41,5 @@ void main() {
     DiagLog.once('grpc.ok', 'first');
     DiagLog.once('grpc.ok', 'second');
     expect(out, ['[DIAG] first']);
-  });
-
-  test('always：每次都记（低频关键成功路径）', () {
-    DiagLog.always('uinterest ok');
-    DiagLog.always('uinterest ok');
-    expect(out.length, 2);
   });
 }

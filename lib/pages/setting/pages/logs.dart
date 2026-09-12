@@ -115,11 +115,6 @@ class _LogsPageState extends State<LogsPage> {
           'piliplus_log_${DateTime.now().millisecondsSinceEpoch}.log';
       final target = File(p.join(dir.path, name));
       await target.writeAsString(await file.readAsString());
-      // 导出动作本身也记一条：反馈问题时能确认"这份日志覆盖到哪个时间点、
-      // 里面有没有目标链路的行"
-      DiagLog.always(
-        '导出日志：$name（${await target.length()} bytes）',
-      );
       await SharePlus.instance.share(
         ShareParams(files: [XFile(target.path)], subject: 'PiliPlus 日志'),
       );

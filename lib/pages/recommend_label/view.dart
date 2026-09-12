@@ -53,13 +53,6 @@ class _RecommendLabelPageState extends State<RecommendLabelPage> {
     setState(() => _state = res);
     if (res case Success(:final response)) {
       _selected = recLabelNames(response.labels).toSet();
-      DiagLog.once(
-        'uinterest.open',
-        '内容偏好页加载成功：我的标签 ${response.labels.length} 个'
-        '（固定 ${response.labels.where((e) => e.isPined).length} 个）、'
-        '全部分区 ${response.allLabels.length} 组、上限 '
-        '${response.mngPageMaterial?.editMaxLabelsCount ?? '-'}',
-      );
     } else if (res is Error) {
       DiagLog.log('uinterest.open.fail', '内容偏好页加载失败: ${res.errMsg}');
     }
@@ -104,16 +97,11 @@ class _RecommendLabelPageState extends State<RecommendLabelPage> {
     }
     final more = res.response;
     if (more.labels.isEmpty) {
-      DiagLog.once('uinterest.more.empty', '更多标签候选池为空（服务端已无可加标签）');
       SmartDialog.showToast(
         more.subtitle?.isNotEmpty == true ? more.subtitle! : '没有更多啦',
       );
       return;
     }
-    DiagLog.once(
-      'uinterest.more',
-      '更多标签候选池：${more.labels.length} 个（打开时默认全部勾选）',
-    );
     final checked = more.labels.where((e) => e.isNotEmpty).toSet();
     final confirmed = await showModalBottomSheet<Set<String>>(
       context: context,

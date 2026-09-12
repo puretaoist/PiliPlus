@@ -2,9 +2,9 @@ import 'package:PiliPlus/utils/utils.dart';
 
 /// fork 侧诊断日志的统一出口（设置 → 日志 → 导出）。
 ///
-/// 本 fork 相对上游改了不少行为：4K/app 流取流与回退、推荐归因心跳、
-/// 播放历史、内容偏好调节、弹幕节流与全屏刷新率…… 这些链路出问题时在真机上
-/// 只表现为"没生效"（不崩、不弹错），所以每条链路都要往可导出日志里留痕。
+/// 原则：**只记出问题的事**。正常播放/正常读写不该在日志里留下任何行 ——
+/// 排查时看到的每一行都应该是"有东西不对"。所以成功路径不写日志，
+/// 只有失败、降级、回退、通道切换才记。
 ///
 /// 直接 `Utils.reportError('[DIAG] ...')` 的坑：同一个失败每次重试都写一行，
 /// 实测一次运行写了 514 行 `reportHistory failed`，把日志顶到 700KB（真机日志
@@ -22,7 +22,7 @@ abstract final class DiagLog {
 
   static void _writeToAppLog(String message) => Utils.reportError(message);
 
-  /// 记录一条可能高频重复的诊断（按 key 节流）
+  /// 记录一条可能高频重复的问题（按 key 节流）
   static void log(
     String key,
     String message, {
@@ -38,14 +38,11 @@ abstract final class DiagLog {
     }
   }
 
-  /// 只记第一次（用于"开关生效/通道切换/启动状态"这类一次性事实）
+  /// 只记第一次（用于降级/回退/通道切换这类"说一次就够"的事实）
   static void once(String key, String message) {
     if (!_onceKeys.add(key)) return;
     write('[DIAG] $message');
   }
-
-  /// 每次都记（用于低频且关键的成功路径）
-  static void always(String message) => write('[DIAG] $message');
 
   /// 某 key 已记录次数（测试用）
   static int countOf(String key) => _counts[key] ?? 0;

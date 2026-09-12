@@ -64,14 +64,15 @@
 
 ## 诊断日志约定（排查真机问题时全靠它）
 
-- 统一走 `lib/utils/diag_log.dart`（`DiagLog.log/once/always`），**不要**直接写
-  `Utils.reportError('[DIAG] ...')`：同一个失败每次重试都写一行，会刷爆日志
-  （2026-09-11 实测一次运行 514 行、700KB）
-- key 用 `模块.事件`：`heartbeat.*`、`history.*`、`rcmd.*`、`grpc.*`、
-  `uinterest.*`、`power.*`、`update.*`、`log.*`
+- **只记出问题的事**：正常播放/正常读写不写日志，日志里出现的每一行都应该
+  指示"有东西不对"。加日志前先问：这行在一切正常时会不会出现？会就别加
+- 统一走 `lib/utils/diag_log.dart`（`DiagLog.log` 节流 / `DiagLog.once` 只记一次），
+  **不要**直接写 `Utils.reportError('[DIAG] ...')`：同一个失败每次重试都写一行，
+  会刷爆日志（2026-09-11 实测一次运行 514 行、700KB）
+- key 用 `模块.事件`：`heartbeat.fail`、`history.*`、`rcmd.error`、`grpc.*`、
+  `uinterest.*`、`power.hz.*`、`update.*`、`log.export.err`
 - 失败日志要带**可定位的上下文**（aid/cid/type/qn/HTTP 状态/响应体），
   参数类错误（-400）没有参数快照就没法查；凭据（access_key/sign）先剔除
-- 新增 fork 侧行为改动时，同步补一条成功路径的 `once`
 
 ## 提交前检查（修改上述文件时）
 
@@ -80,5 +81,5 @@
 - [ ] 若改了心跳/历史参数：跑 `bilibili/hb_verify.py`（应 code=0）
 - [ ] 若改了内容偏好读写：跑 `bilibili/uinterest_verify.py <access_key> --write`
 - [ ] 若改了回退/失败路径：核对回退路径承担的职责是否都有替代
-- [ ] 若新增/修改了链路：补对应的 `DiagLog` 留痕
+- [ ] 若新增/修改了链路：只补**异常/降级路径**的 `DiagLog`，正常路径不写
 - [ ] 若改了 UI 可见行为：CHANGELOG.md 补一行
