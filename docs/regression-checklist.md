@@ -8,10 +8,10 @@
 
 | # | 链路 | 涉及文件 | 验证方式 |
 |---|---|---|---|
-| 1 | 播放 → mobile 心跳归因 | `http/video.dart` `mobileHeartBeat`、`pl_player/controller.dart` `send()` | **本地脚本** `bilibili/hb_verify.py`（code=0）；真机日志 `mobileHeartBeat ok` |
-| 2 | 播放 → 历史记录 | `http/video.dart` `reportHistory` | 看视频 1 分钟 → App 历史记录页出现；真机日志 `history.cookie.ok` / `history.app.ok`（**不应**再出现 `history.app.fail` 的 -400 刷屏） |
+| 1 | 播放 → mobile 心跳归因 | `http/video.dart` `mobileHeartBeat`、`pl_player/controller.dart` `send()` | **本地脚本** `bilibili/hb_verify.py`（code=0）；真机日志不应出现 `heartbeat.fail`（成功不写日志） |
+| 2 | 播放 → 观看进度/历史 | `pl_player/controller.dart` `_writePlaybackProgress`（**web 心跳** `http/video.dart` `heartBeat`）、无 csrf 时退 `http/video.dart` `reportHistory` | 看视频 1 分钟 → 退出 → 历史页**显示刚看的进度**且点进去从该处续播；日志不应出现 `history.app.fail`（-400 刷屏） |
 | 3 | 首页 → 推荐加载/刷新 | `pages/rcmd/controller.dart` `handleListResponse` | 首页首次加载 + 下拉刷新 + 连续刷新 3 次 |
-| 4 | 4K/app 流探测 | `pages/video/controller.dart` `_probeGrpcStream` | 播放视频，日志无 "grpc stream unreachable"（有则回退 web，属预期） |
+| 4 | 4K/app 流探测 | `pages/video/controller.dart` `_probeGrpcStream` | 播放视频，日志无 `grpc.unreachable`（有则回退 web，属预期） |
 | 5 | 内容偏好读写 | `http/recommend_label.dart`、`pages/recommend_label/view.dart` | **本地脚本** `bilibili/uinterest_verify.py <access_key>`（只读）+ `--write`（可回滚读写回环，应全绿）；真机：编辑页勾选/取消 → 完成 → 重进页面确认标签变了 |
 | 6 | 弹幕渲染 | `scripts/danmaku_throttle.patch` | 开弹幕播放，肉眼确认流畅度 |
 
@@ -47,6 +47,19 @@
    `flutter analyze` **查不出**这个问题，只能靠真机日志。
    自查：`Select-String -Path lib\**\*.dart -Pattern "^import 'package:flutter/material\.dart';"`
    应无输出（`@docImport` 注释不算）。
+9. **别把"主链路"当成"兜底"降级/删掉**（2026-09-12 踩过，代价最大的一次）：
+   fork 把上游写观看进度的 `/x/click-interface/web/heartbeat` 降级成
+   "手机心跳失败才回退"，另起 `/x/v2/history/report` 顶替；而后者**返回
+   `code=0` 却并不落库** → 历史进度停更（真机：实际看到 5:00，历史停在
+   00:15，再点进去从 00:15 续播）。改上报链路前先回答三个问题：
+   - 这条通道**现在**还在承担哪些职责？（写历史？写进度？归因？）改之前先
+     把它的调用点全捞出来（`grep 函数名`），别只看名字
+   - 降级/替换后，那些职责由谁接？接的那条**验证过真的落库吗**？
+   - **"返回 code=0" ≠ "写进去了"**：能回读校验的接口（历史、内容偏好），
+     改完必须回读一次比对，光看 code 会被"静默空转"骗过去
+   附带一条：**兜底链会掩盖"主通道根本没被调用"**。保留兜底时，兜底被触发
+   必须记一条日志（`DiagLog.log('xxx.fallback', ...)`），否则日志里看起来一切
+   正常，实际问题早就存在了。
 
 ## 上报参数的权威来源（勿凭记忆修改）
 
@@ -80,6 +93,9 @@
 - [ ] `flutter test` 全绿
 - [ ] 若改了心跳/历史参数：跑 `bilibili/hb_verify.py`（应 code=0）
 - [ ] 若改了内容偏好读写：跑 `bilibili/uinterest_verify.py <access_key> --write`
-- [ ] 若改了回退/失败路径：核对回退路径承担的职责是否都有替代
+- [ ] **若改了播放上报链路：真机看 1 分钟视频 → 退出 → 历史页确认进度在动**
+      （这条 CI 永远发现不了，历史上就是这么漏掉的）
+- [ ] 若改了回退/失败路径：核对回退路径承担的职责是否都有替代（陷阱 9）
+- [ ] 若改动了某条通道的调用频率/优先级：把它的调用点全捞一遍，确认没人靠它兼职
 - [ ] 若新增/修改了链路：只补**异常/降级路径**的 `DiagLog`，正常路径不写
 - [ ] 若改了 UI 可见行为：CHANGELOG.md 补一行
