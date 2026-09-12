@@ -2,6 +2,36 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-09-12 历史进度不再更新（真机：看5分钟记00:15）—— 根因与修复
+
+反馈："实际看了 5:00，记录却是 00:15，从历史记录再点进去从 00:15 开始。"
+
+**根因**：fork 把上游写入观看进度的通道**降级成了兜底**。
+
+- 上游 `bggRGjQaUbCoE/PiliPlus` 的 `makeHeartBeat` 里，`send()` 就是
+  `VideoHttp.heartBeat(...)` —— 打 `/x/click-interface/web/heartbeat`，
+  表单里的 `played_time` **就是进度秒数**（看完传 -1），并级联出历史记录进度；
+  节流规则是 `playing` 进度每 +5s、`status` 每 +2s、`completed` 强制一次
+- `c7e5fb0ea`（归因心跳）把 `send()` 换成了 mobile 心跳，
+  `59081212b` 又加了 `/x/v2/history/report` 写历史，web 心跳只剩
+  "手机心跳失败才回退" 的兜底 —— 于是它基本不再被调用，历史进度停更
+- 日志能印证：`reportHistory failed -400` 刷了 514 行（APP 身份被拒），
+  cookie 兜底返回 code=0 但**并不落库**（否则真机上进度不会停在 00:15），
+  而 mobile 心跳本身"只做归因不写历史"，`2130fa9fd` 的注释也写明了这点
+- 等于三条路里：APP 身份被拒、cookie 路径空转、只有被降级的 web 心跳真能写
+
+**修复**：把两件事解耦，各走各的通道
+
+- ① **写观看进度**：有 cookie 就每次 `send()` 都发 web 心跳
+  `/x/click-interface/web/heartbeat`（上游通道，节流仍用上游的
+  playing +5s / status +2s / completed 强制）；只有 access_key、没有 csrf 的
+  账号才退到 `/x/v2/history/report`
+- ② **归因心跳**：mobile 心跳保持 60s 一次，只做推荐归因，不再承担写历史
+- 去掉了"手机心跳失败→回退 web 心跳""历史上报失败→回退 web 心跳"两条兜底链：
+  web 心跳现在是每次都发的主通道，兜底逻辑反而会掩盖它没发这件事
+
+上一节的两处加固（时长兜底、误报"已看完"拦截）保留，它们解决的是另一类症状。
+
 ## 2026-09-12 历史记录的时长/进度可信化
 
 反馈"历史记录的视频时长与真实的相悖"。先把上报值拿来对账：把日志里 8 条

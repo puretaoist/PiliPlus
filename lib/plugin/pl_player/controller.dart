@@ -1566,65 +1566,39 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             'cid=${ctx.cid}）',
           );
         }
-        // position 每秒变化都会走到这里；官方移动端心跳是长间隔（约 60s），
-        // 每秒打一次会被风控且费电。非结束状态按间隔节流，进度只在内存累积
+        // ① 写观看进度（历史记录）：web 心跳 /x/click-interface/web/heartbeat，
+        //    表单里的 played_time 就是进度秒数（看完传 -1）。这是上游长期验证
+        //    有效的通道；fork 曾把它降级成"手机心跳失败才回退"的兜底，结果
+        //    历史进度不再更新（真机反馈：实际看到 5:00，历史停在 00:15）。
+        //    外层 switch 已按上游规则节流（playing +5s / status +2s / completed 强制），
+        //    所以这里每次都发。
+        final progressWrite = _writePlaybackProgress(
+          ctx: ctx,
+          progress: reportProgress,
+          completed: completed,
+          aid: aid,
+          bvid: bvid,
+          cid: cid,
+          epid: epid,
+          seasonId: seasonId,
+          pgcType: pgcType,
+          videoType: videoType,
+        );
+
+        // ② 归因心跳（mobile）：官方移动端是 ~60s 一次，单独节流；
+        //    它只做推荐归因，不承担写历史（历史由 ① 负责，两件事解耦）
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         if (!completed && ctx.lastReportTs != 0 && now - ctx.lastReportTs < 60) {
           ctx.updateProgress(progress);
-          return Future.value();
+          return progressWrite;
         }
-        return VideoHttp.mobileHeartBeat(
-          ctx,
-          reportProgress,
-          completed: completed,
-        ).then((ok) {
-          if (!ok) {
-            // 归因心跳被服务端拒绝（真机日志显示 HTTP 层 badResponse，
-            // 疑似风控）。回退 web 心跳，保证进度上报与历史记录不丢
-            DiagLog.log(
-              'heartbeat.webFallback',
-              'mobile 心跳被拒 → 回退 web 心跳 aid=${ctx.aid} cid=${ctx.cid} '
-              'progress=$reportProgress completed=$completed',
-            );
-            return VideoHttp.heartBeat(
-              aid: aid ?? _aid,
-              bvid: bvid ?? _bvid,
-              cid: cid ?? this.cid,
-              progress: reportProgress,
-              epid: epid ?? _epid,
-              seasonId: seasonId ?? _seasonId,
-              subType: pgcType ?? _pgcType,
-              videoType: videoType ?? _videoType,
-            );
-          }
-          // mobile 心跳只做归因不写观看历史，历史需单独上报
-          // （此前靠失败回退 web 心跳顺带记录，心跳打通后断记）
-          return VideoHttp.reportHistory(
-            ctx: ctx,
-            progress: reportProgress,
+        return progressWrite.then(
+          (_) => VideoHttp.mobileHeartBeat(
+            ctx,
+            reportProgress,
             completed: completed,
-          ).then((historyOk) {
-            // 双保险：历史上报失败时回退 web 心跳（它同样会写历史），
-            // 避免任何一条链路失败就断记
-            if (!historyOk) {
-              DiagLog.log(
-                'history.webFallback',
-                '历史上报失败 → 回退 web 心跳（顺带写历史）aid=${ctx.aid} '
-                'cid=${ctx.cid} progress=$reportProgress completed=$completed',
-              );
-              return VideoHttp.heartBeat(
-                aid: aid ?? _aid,
-                bvid: bvid ?? _bvid,
-                cid: cid ?? this.cid,
-                progress: reportProgress,
-                epid: epid ?? _epid,
-                seasonId: seasonId ?? _seasonId,
-                subType: pgcType ?? _pgcType,
-                videoType: videoType ?? _videoType,
-              );
-            }
-          });
-        });
+          ),
+        );
       }
       return VideoHttp.heartBeat(
         aid: aid ?? _aid,
@@ -1657,6 +1631,46 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         return send();
     }
     return null;
+  }
+
+  /// 写观看进度（历史记录）。
+  ///
+  /// - **有 cookie** 时走 web 心跳 `/x/click-interface/web/heartbeat`：表单里的
+  ///   `played_time` 就是进度秒数（看完传 -1），这是上游长期验证有效、网页端
+  ///   真实使用的通道。fork 曾把它降级成"手机心跳失败才回退"的兜底，结果历史
+  ///   进度不再更新（真机反馈：实际看到 5:00，历史停在 00:15，再点进去从 00:15
+  ///   续播）—— `/x/v2/history/report` 虽然返回 code=0，但并没有落库
+  /// - **没有 cookie**（纯 access_key 登录、csrf 为空）时才退到
+  ///   `/x/v2/history/report`（APP 身份）
+  Future<void> _writePlaybackProgress({
+    required VideoReportContext ctx,
+    required int progress,
+    required bool completed,
+    dynamic aid,
+    dynamic bvid,
+    dynamic cid,
+    dynamic epid,
+    dynamic seasonId,
+    dynamic pgcType,
+    VideoType? videoType,
+  }) {
+    if (Accounts.heartbeat.csrf.isEmpty) {
+      return VideoHttp.reportHistory(
+        ctx: ctx,
+        progress: progress,
+        completed: completed,
+      );
+    }
+    return VideoHttp.heartBeat(
+      aid: aid ?? _aid,
+      bvid: bvid ?? _bvid,
+      cid: cid ?? this.cid,
+      progress: progress,
+      epid: epid ?? _epid,
+      seasonId: seasonId ?? _seasonId,
+      subType: pgcType ?? _pgcType,
+      videoType: videoType ?? _videoType,
+    );
   }
 
   void setPlayRepeat(PlayRepeat type) {
