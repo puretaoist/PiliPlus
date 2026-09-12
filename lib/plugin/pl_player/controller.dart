@@ -39,6 +39,7 @@ import 'package:PiliPlus/utils/android/android_helper.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/asset_utils.dart';
 import 'package:PiliPlus/utils/device_utils.dart';
+import 'package:PiliPlus/utils/diag_log.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/extension/box_ext.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
@@ -1449,8 +1450,19 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         final modes = await FlutterDisplayMode.supported;
         final candidates = modes.where((e) => e.refreshRate <= 61).toList()
           ..sort((a, b) => b.refreshRate.compareTo(a.refreshRate));
-        if (candidates.isEmpty) return;
+        if (candidates.isEmpty) {
+          DiagLog.once(
+            'power.hz.empty',
+            '全屏降刷新率：设备无 ≤61Hz 的显示模式，跳过（可选 ${modes.length} 档）',
+          );
+          return;
+        }
         await FlutterDisplayMode.setPreferredMode(candidates.first);
+        DiagLog.once(
+          'power.hz.pin',
+          '全屏降刷新率 → ${candidates.first.refreshRate}Hz'
+          '（设备可选 ${modes.length} 档）',
+        );
       } else {
         final saved = GStorage.setting.get(SettingBoxKey.displayMode);
         DisplayMode? restore;
@@ -1464,8 +1476,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
         }
         await FlutterDisplayMode.setPreferredMode(restore ?? DisplayMode.auto);
+        DiagLog.once(
+          'power.hz.restore',
+          '退出全屏恢复刷新率 → '
+          '${restore == null ? 'auto' : '${restore.refreshRate}Hz'}',
+        );
       }
     } catch (e) {
+      DiagLog.log('power.hz.err', '设置刷新率失败: $e');
       if (kDebugMode) debugPrint('set refresh rate failed: $e');
     }
   }
@@ -1519,13 +1537,29 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         if (!isEnd && ctx.lastReportTs != 0 && now - ctx.lastReportTs < 60) {
           ctx.updateProgress(progress);
+          DiagLog.once(
+            'heartbeat.throttle',
+            '心跳节流生效：间隔 <60s 的上报被跳过（对齐官方节奏）',
+          );
           return Future.value();
+        }
+        if (isEnd) {
+          DiagLog.once(
+            'heartbeat.lastPacket',
+            '播放结束上报（progress=-1 → 才标记为已看完）aid=${ctx.aid} '
+            'cid=${ctx.cid} duration=${ctx.videoDuration}s',
+          );
         }
         return VideoHttp.mobileHeartBeat(ctx, progress, completed: isEnd)
             .then((ok) {
           if (!ok) {
             // 归因心跳被服务端拒绝（真机日志显示 HTTP 层 badResponse，
             // 疑似风控）。回退 web 心跳，保证进度上报与历史记录不丢
+            DiagLog.log(
+              'heartbeat.webFallback',
+              'mobile 心跳被拒 → 回退 web 心跳 aid=${ctx.aid} cid=${ctx.cid} '
+              'progress=$progress completed=$isEnd',
+            );
             return VideoHttp.heartBeat(
               aid: aid ?? _aid,
               bvid: bvid ?? _bvid,
@@ -1547,6 +1581,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             // 双保险：历史上报失败时回退 web 心跳（它同样会写历史），
             // 避免任何一条链路失败就断记
             if (!historyOk) {
+              DiagLog.log(
+                'history.webFallback',
+                '历史上报失败 → 回退 web 心跳（顺带写历史）aid=${ctx.aid} '
+                'cid=${ctx.cid} progress=$progress completed=$isEnd',
+              );
               return VideoHttp.heartBeat(
                 aid: aid ?? _aid,
                 bvid: bvid ?? _bvid,

@@ -2,6 +2,93 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-09-12 全链路诊断日志 + 播放历史 -400 修复
+
+真机日志（`piliplus_log_1789220265150.log`）统计出来的两类问题：
+
+**1. 播放历史 APP 通道 100% 失败，且把日志刷爆**
+
+- **514 次** `[DIAG] reportHistory failed ... {code: -400, message: 请求错误}`：
+  `/x/v2/history/report` 的 access_key（APP）身份被恒定拒绝；同期心跳
+  `mobileHeartBeat ok {code: 0}`（同一套 appkey/sign），说明不是签名问题，
+  而是该接口对 app 身份的严格校验。整条日志因此涨到 700KB
+- **0 次** cookie 通道失败（`reportHistory(cookie) failed` 一行都没有）：
+  说明真正在记历史的一直是 cookie 回退路径
+- 修复：**有 cookie（csrf）时优先走 cookie**（与 web 端一致），APP 方式退化为
+  无 cookie 账号的兜底；任一条失败自动切另一条并把"可用通道"记进会话
+  （不再每条上报都白跑一次注定失败的请求）；两条都失败才记日志
+- 顺带补全 APP 方式的头（buvid / session_id / aurora / trace-id），与心跳对齐
+
+**2. 日志刷屏 → 统一诊断日志出口 `lib/utils/diag_log.dart`**
+
+- `DiagLog.log(key, msg)`：同一个 key 前 3 次逐条记，之后每 50 次记一条并带
+  累计次数；`DiagLog.once()` 只记第一次（开关生效/通道切换）；`DiagLog.always()`
+  记低频关键成功路径
+- 有单元测试守护节流行为（`test/utils/diag_log_test.dart`，含"100 次只落 5 行"）
+
+**3. 把 fork 改过的每条链路都补上留痕**（此前只有心跳/历史/内容偏好有）
+
+| 链路 | 新增日志（key） |
+|---|---|
+| 4K/app 取流 | `grpc.ok` / `grpc.unreachable` / `grpc.error` / `grpc.probe.status` / `grpc.parse.ok` / `grpc.parse.empty` |
+| gRPC 传输 | `grpc.transport.err` / `grpc.transport.fail` / `grpc.status` |
+| 心跳 | `heartbeat.ok` / `heartbeat.fail`（带参数快照）/ `heartbeat.throttle` / `heartbeat.lastPacket` / `heartbeat.webFallback` |
+| 播放历史 | `history.cookie.ok/fail/err`、`history.app.ok/fail/err`（失败带完整参数）、`history.switch`、`history.bothFailed` |
+| 首页推荐 | `rcmd.mode` / `rcmd.fetch`（idx/flush/pull）/ `rcmd.result` / `rcmd.error` / `rcmd.append` |
+| 内容偏好 | `uinterest.open` / `uinterest.more` / `uinterest/mng ok`（成功也记）/ 失败带完整请求 |
+| 功耗 | `power.hz.pin` / `power.hz.restore` / `power.hz.empty` / `power.hz.err` |
+| 更新检查 | `update.skip` / `update.available` / `update.latest` / `update.fail` / `update.err` |
+| 日志导出 | 导出文件名与字节数（便于确认"这份日志覆盖到哪"） |
+
+**4. gRPC 传输层异常不再向上抛**
+
+`GrpcReq.request` 约定返回 `LoadingState`，但传输异常（断网/超时/DNS）此前会
+直接抛出，4K 取流的"失败→回退 web"分支根本走不到。现在统一转成
+`Error('grpc 请求异常: ...')` 并记日志，回退逻辑得以生效。
+
+## 2026-09-12 内容偏好管理（uinterest/mng）契约修正 + 页面崩溃修复
+
+真机日志（`piliplus_log_*.log`）里抓到内容偏好页的三次 `Null check operator
+used on a null value`，根因不是接口而是**页面 import 错了 Material**：
+
+- 本 fork 的 `GetMaterialApp` 来自 `bggRGjQaUbCoE/getx.git`（dev 分支），该分支
+  已改成 `import 'package:material_ui/material_ui.dart'` → 全 App 注册的是
+  **material_ui 的 MaterialLocalizations**
+- 内容偏好页此前 import 的是 `package:flutter/material.dart`（全 lib 仅此一处，
+  另两处是 @docImport 注释），于是本页 `AppBar/BackButton` 与 `showDialog`
+  去查 flutter 侧的 MaterialLocalizations → `Localizations.of` 返回 null
+  → `!` 抛异常（日志栈：`_RecommendLabelPageState._backToDefault` →
+  `new DialogRoute` → `MaterialLocalizations.of`）
+- 修复：改为 `import 'package:material_ui/material_ui.dart'`，与其余 468 个文件一致
+
+深入反编译官方 APK 8.62 的 `com.bilibili.pegasus.recommendlabel` 包后，发现
+mng 写接口的字段编码与 action 语义此前都猜错了，导致"提交成功但偏好没变"：
+
+- **字段编码**：`fixed_label` / `unfixed_label` 是**标签名用 "," 拼接的字符串**，
+  不是 JSON 数组。官方 Kotlin 侧走 `Jt0.b.a(List<String>)` 拼接，服务端按逗号切分；
+  旧实现发 `jsonEncode(list)`（`["动画","游戏"]`），服务端把它当成**一个**标签名，
+  于是返回 code=0 却什么都没改
+- **action 语义**（来自 `l0#c` 的 7 个调用点，此前只有 1/2 两个猜测值）：
+  1=取消固定、2=删除固定标签、3=删除自选标签、4=自选升为固定、5=新增单个标签、
+  6=恢复默认、7=批量新增（勾选后一次提交）。旧实现把 1 当成"保存修改"、
+  把 2 当成"恢复默认"，两个都是错的
+- **快照语义**：每次提交的是**变更后的全量快照**（变更后 is_fixed==1 的标签名 +
+  变更后 is_fixed==0 的标签名 + 本次改动的标签名），不是增量
+- 编辑页改为对齐官方：勾选/取消勾选 = 我的标签集合的增删；保存时**先逐个删除**
+  （固定标签 action 2、自选标签 action 3，官方没有批量删除），**再一次批量新增**
+  （action 7）；恢复默认走 action 6（两个列表都提交空且不带 changed_label）
+- 接上编辑页的「更多标签」入口（`/x/v2/feed/uinterest/more`，此前 `uinterestMore()`
+  是死代码）：底部弹层展示候选池，**默认全部勾选**、一个不勾则按钮置灰、
+  文案全部用服务端下发的 title/subtitle/add_button/toast，候选为空时 toast
+  "没有更多啦"，与官方 `BottomSheetContent` 的行为一致
+- 顺带补齐 `back_to_default_window`（服务端下发的二次确认弹窗文案：title /
+  subtitle / cancel_button / confirm_button / toast）
+- 新增回归守护：`test/http/recommend_label_test.dart`（字段编码 + action 取值 +
+  服务端字段解析）
+- 新增真机之外的自证脚本 `bilibili/uinterest_verify.py`：
+  `python uinterest_verify.py <access_key>` 只读打印当前偏好；
+  加 `--write` 做一次**可回滚**的读写回环（新增 → 确认生效 → 删回）
+
 ## 2026-09-10 上游同步
 
 - 合并上游 main（9730d29a8 → 32538c4d7，共 5 个提交：评论区 API 迁移、
@@ -66,5 +153,6 @@
 - ✅ **归因心跳已打通**：真机日志 `mobileHeartBeat ok http=200: {code: 0}`
   （参数表按官方 APK 8.62 的 `HeartbeatParams` 逐字段对齐；关键点是
   `appkey` 必须同时出现在请求体里，只用于签名会导致服务端 -400）
-- ⏳ 内容偏好写接口的 `action` 取值（当前按 1=保存 / 2=恢复默认 实现）待校准
+- ✅ 内容偏好写接口的 action 取值已校准（见 2026-09-12 一节：1/2 的猜测作废，
+  正确语义为 2=删固定 / 3=删自选 / 6=恢复默认 / 7=批量新增）
 - ⏳ 弹幕节流 / 全屏 60Hz 的功耗改善幅度待实测对比

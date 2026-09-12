@@ -5,6 +5,7 @@ import 'package:PiliPlus/grpc/bilibili/rpc.pb.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
+import 'package:PiliPlus/utils/diag_log.dart';
 import 'package:archive/archive.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, compute;
@@ -59,15 +60,27 @@ abstract final class GrpcReq {
     bool isolate = false,
     Map<String, String>? headers,
   }) async {
-    final response = await Request().post<Uint8List>(
-      HttpString.appBaseUrl + url,
-      data: compressProtobuf(request.writeToBuffer()),
-      options: headers == null
-          ? options
-          : options.copyWith(extra: {'grpcHeadersOverride': headers}),
-    );
+    final Response response;
+    try {
+      response = await Request().post<Uint8List>(
+        HttpString.appBaseUrl + url,
+        data: compressProtobuf(request.writeToBuffer()),
+        options: headers == null
+            ? options
+            : options.copyWith(extra: {'grpcHeadersOverride': headers}),
+      );
+    } catch (e) {
+      // 传输层异常（断网/DNS/超时）也按 Error 返回：本方法约定返回
+      // LoadingState，抛异常会让调用方的"回退 web 取流"分支根本走不到
+      DiagLog.log('grpc.transport.err', 'grpc 请求异常 url=$url: $e');
+      return Error('grpc 请求异常: $e');
+    }
 
     if (response.data case final Map map) {
+      DiagLog.log(
+        'grpc.transport.fail',
+        'grpc 请求被拒 url=$url resp=${map['message']}',
+      );
       return Error(map['message']);
     }
 
@@ -106,8 +119,15 @@ abstract final class GrpcReq {
             msg = utf8.decode(msgBytes, allowMalformed: true);
           }
         }
+        DiagLog.log(
+          'grpc.status',
+          'grpc 非 0 状态 url=$url status='
+          '${response.headers.value('Grpc-Status')} code=$code '
+          'msg=${msg.length > 200 ? '${msg.substring(0, 200)}…' : msg}',
+        );
         return Error(msg, code: code);
       } catch (e) {
+        DiagLog.log('grpc.status.err', 'grpc 错误详情解析失败 url=$url: $e');
         return Error(e.toString());
       }
     }

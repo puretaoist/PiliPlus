@@ -9,10 +9,10 @@
 | # | 链路 | 涉及文件 | 验证方式 |
 |---|---|---|---|
 | 1 | 播放 → mobile 心跳归因 | `http/video.dart` `mobileHeartBeat`、`pl_player/controller.dart` `send()` | **本地脚本** `bilibili/hb_verify.py`（code=0）；真机日志 `mobileHeartBeat ok` |
-| 2 | 播放 → 历史记录 | `http/video.dart` `reportHistory` | 看视频 1 分钟 → App 历史记录页出现；真机日志无报错 |
+| 2 | 播放 → 历史记录 | `http/video.dart` `reportHistory` | 看视频 1 分钟 → App 历史记录页出现；真机日志 `history.cookie.ok` / `history.app.ok`（**不应**再出现 `history.app.fail` 的 -400 刷屏） |
 | 3 | 首页 → 推荐加载/刷新 | `pages/rcmd/controller.dart` `handleListResponse` | 首页首次加载 + 下拉刷新 + 连续刷新 3 次 |
 | 4 | 4K/app 流探测 | `pages/video/controller.dart` `_probeGrpcStream` | 播放视频，日志无 "grpc stream unreachable"（有则回退 web，属预期） |
-| 5 | 内容偏好读写 | `http/recommend_label.dart` | 设置页打开偏好页；保存后重进确认 |
+| 5 | 内容偏好读写 | `http/recommend_label.dart`、`pages/recommend_label/view.dart` | **本地脚本** `bilibili/uinterest_verify.py <access_key>`（只读）+ `--write`（可回滚读写回环，应全绿）；真机：编辑页勾选/取消 → 完成 → 重进页面确认标签变了 |
 | 6 | 弹幕渲染 | `scripts/danmaku_throttle.patch` | 开弹幕播放，肉眼确认流畅度 |
 
 ## 已知的"一改就坏"陷阱
@@ -32,19 +32,53 @@
    补丁 → 大量 error。升级后必须对新版本重新打补丁（CI 的 patch.ps1 已处理）。
 6. **CI pub 缓存**：缓存会保存"已打补丁"的包。新增的 patch 步骤必须做幂等
    （`git apply --check --reverse` 已应用则跳过），参考 danmaku 段。
+7. **uinterest/mng 的三个字段**（2026-09-12 踩过）：`fixed_label`/`unfixed_label`
+   是**逗号拼接的标签名字符串**，不是 JSON 数组；`action` 是官方定义的
+   1..7（1=取消固定、2=删固定、3=删自选、4=自选升固定、5=加单个、6=恢复默认、
+   7=批量加），**没有"1=保存"这种取值**。猜错不会报错：服务端照样返回
+   code=0，只是偏好一个字都没变。有单元测试守护
+   `test/http/recommend_label_test.dart`。
+8. **新建页面必须 `import 'package:material_ui/material_ui.dart'`**（2026-09-12 踩过）：
+   本 fork 的 `GetMaterialApp` 来自 `bggRGjQaUbCoE/getx.git`，它 build 的是
+   **material_ui 包**的 MaterialApp。若页面 import `package:flutter/material.dart`，
+   该页的 `AppBar/BackButton`、`showDialog`、`showModalBottomSheet` 会去查
+   flutter 侧的 `MaterialLocalizations`（另一个类）→ 取到 null →
+   真机 `Null check operator used on a null value`。
+   `flutter analyze` **查不出**这个问题，只能靠真机日志。
+   自查：`Select-String -Path lib\**\*.dart -Pattern "^import 'package:flutter/material\.dart';"`
+   应无输出（`@docImport` 注释不算）。
 
 ## 上报参数的权威来源（勿凭记忆修改）
 
 - mobile 心跳：官方 APK 8.62 `tv.danmaku.biliplayerimpl.report.heartbeat.HeartbeatParams`
   （33 字段），反编译产物在 `bilibili/decompiled_rest/`
-- 播放历史：`/x/v2/history/report`，参数对齐 bbspace `buildPlaybackHistoryParams`
+- 播放历史：`/x/v2/history/report`，官方实现是
+  `kntr.common.inline.history.PlayerHistoryCloudSyncHelper`（反编译产物在
+  `bilibili/decompiled_small/`）：`type/sub_type/cid/aid/sid/epid/progress/duration/
+  scene=front/start_ts/device_ts/source`；`source` 取值见 `PlayerBizSourceType`
+  （播放器主链路是 `player-old`）
+- 内容偏好：`/x/v2/feed/uinterest/mng` 的 action 语义见
+  `com.bilibili.pegasus.recommendlabel.l0#c`（反编译产物在 `decompiled_small/`）
 - 签名：`md5(sorted(biliUrlEncode(k=v)) + appsec)`，**有单元测试守护**
   `test/utils/bili_report_sign_test.dart`（含官方验签期望值）
+
+## 诊断日志约定（排查真机问题时全靠它）
+
+- 统一走 `lib/utils/diag_log.dart`（`DiagLog.log/once/always`），**不要**直接写
+  `Utils.reportError('[DIAG] ...')`：同一个失败每次重试都写一行，会刷爆日志
+  （2026-09-11 实测一次运行 514 行、700KB）
+- key 用 `模块.事件`：`heartbeat.*`、`history.*`、`rcmd.*`、`grpc.*`、
+  `uinterest.*`、`power.*`、`update.*`、`log.*`
+- 失败日志要带**可定位的上下文**（aid/cid/type/qn/HTTP 状态/响应体），
+  参数类错误（-400）没有参数快照就没法查；凭据（access_key/sign）先剔除
+- 新增 fork 侧行为改动时，同步补一条成功路径的 `once`
 
 ## 提交前检查（修改上述文件时）
 
 - [ ] `flutter analyze` 0 error 0 warning
 - [ ] `flutter test` 全绿
 - [ ] 若改了心跳/历史参数：跑 `bilibili/hb_verify.py`（应 code=0）
+- [ ] 若改了内容偏好读写：跑 `bilibili/uinterest_verify.py <access_key> --write`
 - [ ] 若改了回退/失败路径：核对回退路径承担的职责是否都有替代
+- [ ] 若新增/修改了链路：补对应的 `DiagLog` 留痕
 - [ ] 若改了 UI 可见行为：CHANGELOG.md 补一行

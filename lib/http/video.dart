@@ -7,6 +7,7 @@ import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart'
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/utils/bili_report_sign.dart';
+import 'package:PiliPlus/utils/diag_log.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/login.dart';
@@ -773,11 +774,10 @@ abstract final class VideoHttp {
     );
   }
 
-  /// 本次会话是否已记录过心跳结果（避免高频写日志）
-  static bool _heartbeatLogged = false;
-
-  /// 本次会话是否已记录过历史上报结果
-  static bool _historyLogged = false;
+  /// 历史上报实际可用的身份通道（null = 本会话还没试出来）：
+  /// true = cookie（web 身份），false = access_key（APP 身份）。
+  /// 见 [reportHistory] 的注释：真机上 APP 通道对该接口恒定 -400
+  static bool? _historyUseCookie;
 
   /// 心跳专用 Dio（绕开全局拦截器，见 mobileHeartBeat 注释）
   static Dio? _heartbeatDio;
@@ -924,16 +924,24 @@ abstract final class VideoHttp {
         .then((res) {
           final ok = res.data is Map && res.data['code'] == 0;
           // 归因心跳是否被服务端接受是排查推荐效果的关键依据：
-          // 首次结果与每次失败都写进可导出的日志（带 HTTP 状态码；
-          // 失败时附参数快照 —— 参数类错误如 -400 只能靠它定位，凭据已剔除）
-          if (!ok || !_heartbeatLogged) {
-            _heartbeatLogged = true;
+          // 首次成功记一条，失败按 key 节流记录（带 HTTP 状态码与参数快照 ——
+          // 参数类错误如 -400 只能靠它定位，凭据已剔除）
+          if (ok) {
+            DiagLog.once(
+              'heartbeat.ok',
+              'mobileHeartBeat ok http=${res.statusCode} aid=${ctx.aid} '
+              'cid=${ctx.cid} type=${ctx.type} quality=${ctx.quality} '
+              'played=$progressSec/${ctx.videoDuration}s '
+              'track=${ctx.trackId ?? '-'} from=${ctx.fromSpmid}',
+            );
+          } else {
             final snapshot = Map.of(params)
               ..remove('access_key')
               ..remove('sign');
-            Utils.reportError(
-              '[DIAG] mobileHeartBeat ${ok ? 'ok' : 'failed'} '
-              'http=${res.statusCode}: ${res.data} params=$snapshot',
+            DiagLog.log(
+              'heartbeat.fail',
+              'mobileHeartBeat failed http=${res.statusCode} aid=${ctx.aid} '
+              'cid=${ctx.cid} type=${ctx.type} resp=${res.data} params=$snapshot',
             );
           }
           return ok;
@@ -945,10 +953,16 @@ abstract final class VideoHttp {
   /// 历史必须单独上报本接口 —— 此前依赖"心跳失败→回退 web 心跳"顺带记录，
   /// 心跳打通后该回退不再触发，导致历史断记（真机反馈）。
   ///
-  /// 认证双轨（真机日志实证：cookie 登录（无 access_key）时 APP 方式会被
-  /// 服务端按未登录拒绝，返回中文"请求错误"）：
-  /// - 有 access_key → APP 方式（表单 + appkey/sign）
-  /// - 无 access_key（cookie 登录）→ web 方式（Request() 自带 cookie + csrf）
+  /// 认证双轨（真机日志实证）：
+  /// - **cookie 方式**（`Request()` 自带 SESSDATA + csrf）：这条通道在真机上
+  ///   一次都没失败过
+  /// - **APP 方式**（表单 + appkey/sign + access_key）：对 `/x/v2/history/report`
+  ///   恒定返回 `code=-400 请求错误`（一次运行 514 次，日志刷到 700KB）；同一套
+  ///   appkey/sign 打心跳却是 code=0，说明是本接口对 app 身份的严格校验，不是签名问题
+  ///
+  /// 因此：**有 cookie 就走 cookie**（与 web 端一致），APP 方式退化为
+  /// 无 cookie 账号（纯 access_key 登录）的兜底；任一条失败时自动切另一条，
+  /// 并把"实际可用通道"记进会话，避免每条上报都白跑一次失败请求。
   static Future<bool> reportHistory({
     required VideoReportContext ctx,
     required int progress,
@@ -956,40 +970,96 @@ abstract final class VideoHttp {
   }) async {
     final account = Accounts.get(AccountType.main);
     if (!account.isLogin) return false;
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final progressValue = completed ? -1 : progress.clamp(0, 1 << 30);
 
-    final accessKey = account.accessKey;
-    if (accessKey == null || accessKey.isEmpty) {
-      // cookie 登录：走 web 端同一接口（Request() 自带 SESSDATA cookie）
-      return Request()
-          .post(
-            'https://api.bilibili.com/x/v2/history/report',
-            data: {
-              'aid': ctx.aid,
-              'cid': ctx.cid,
-              'progress': progressValue,
-              'type': ctx.type,
-              'epid': ?ctx.epId,
-              'sid': ?ctx.seasonId,
-              'csrf': Accounts.heartbeat.csrf,
-            },
-            options: Options(contentType: Headers.formUrlEncodedContentType),
-          )
-          .then((res) {
-            final ok = res.data is Map && res.data['code'] == 0;
-            if (!ok || !_historyLogged) {
-              _historyLogged = true;
-              Utils.reportError(
-                '[DIAG] reportHistory(cookie) ${ok ? 'ok' : 'failed'} '
-                'aid=${ctx.aid} progress=$progressValue: ${res.data}',
-              );
-            }
-            return ok;
-          });
-    }
+    final hasCookie = Accounts.heartbeat.csrf.isNotEmpty;
+    // 会话内记住哪条通道可用（null = 还没试出来）
+    final useCookie = _historyUseCookie ?? hasCookie;
+    final ok = useCookie
+        ? await _reportHistoryByCookie(ctx, progressValue)
+        : await _reportHistoryByApp(ctx, progressValue);
+    if (ok) return true;
 
-    // APP 方式：access_key 身份
+    // 主通道失败：换另一条再试一次，成功则记住它
+    final altCookie = !useCookie;
+    final altOk = altCookie
+        ? await _reportHistoryByCookie(ctx, progressValue)
+        : await _reportHistoryByApp(ctx, progressValue);
+    if (altOk) {
+      _historyUseCookie = altCookie;
+      DiagLog.once(
+        'history.switch',
+        'reportHistory 通道切换 → ${altCookie ? 'cookie' : 'app'}'
+        '（原通道 ${useCookie ? 'cookie' : 'app'} 失败）',
+      );
+    } else {
+      DiagLog.log(
+        'history.bothFailed',
+        'reportHistory 两条通道都失败 aid=${ctx.aid} cid=${ctx.cid} '
+        'type=${ctx.type} sub=${ctx.subType} sid=${ctx.seasonId} '
+        'epid=${ctx.epId} duration=${ctx.videoDuration} '
+        'progress=$progressValue completed=$completed',
+      );
+    }
+    return altOk;
+  }
+
+  /// cookie 身份的历史上报（web 端同一接口，Request() 自带 SESSDATA + csrf）
+  static Future<bool> _reportHistoryByCookie(
+    VideoReportContext ctx,
+    int progressValue,
+  ) {
+    return Request()
+        .post(
+          'https://api.bilibili.com/x/v2/history/report',
+          data: {
+            'aid': ctx.aid,
+            'cid': ctx.cid,
+            'progress': progressValue,
+            'type': ctx.type,
+            'epid': ?ctx.epId,
+            'sid': ?ctx.seasonId,
+            'csrf': Accounts.heartbeat.csrf,
+          },
+          options: Options(contentType: Headers.formUrlEncodedContentType),
+        )
+        .then((res) {
+          final ok = res.data is Map && res.data['code'] == 0;
+          if (ok) {
+            DiagLog.once(
+              'history.cookie.ok',
+              'reportHistory(cookie) ok aid=${ctx.aid} cid=${ctx.cid} '
+              'type=${ctx.type} duration=${ctx.videoDuration} '
+              'progress=$progressValue',
+            );
+          } else {
+            DiagLog.log(
+              'history.cookie.fail',
+              'reportHistory(cookie) failed aid=${ctx.aid} cid=${ctx.cid} '
+              'type=${ctx.type} sub=${ctx.subType} sid=${ctx.seasonId} '
+              'epid=${ctx.epId} duration=${ctx.videoDuration} '
+              'progress=$progressValue resp=${res.data}',
+            );
+          }
+          return ok;
+        })
+        .catchError((Object e) {
+          DiagLog.log(
+            'history.cookie.err',
+            'reportHistory(cookie) 异常 aid=${ctx.aid} cid=${ctx.cid}: $e',
+          );
+          return false;
+        });
+  }
+
+  /// access_key 身份的历史上报（表单 + appkey/sign）。
+  /// 真机上该接口对 app 身份返回 -400，保留作为无 cookie 账号的兜底
+  static Future<bool> _reportHistoryByApp(
+    VideoReportContext ctx,
+    int progressValue,
+  ) {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final accessKey = Accounts.get(AccountType.main).accessKey;
     final params = <String, dynamic>{
       'aid': ctx.aid,
       'cid': ctx.cid,
@@ -1014,7 +1084,7 @@ abstract final class VideoHttp {
       'disable_rcmd': 0,
       'statistics': _statisticsAppAndroid,
       'ts': now,
-      'access_key': accessKey,
+      'access_key': ?accessKey,
       'appkey': _appKeyAndroid,
     };
     params['sign'] = _mobileSign(params);
@@ -1031,64 +1101,48 @@ abstract final class VideoHttp {
           options: Options(
             contentType: Headers.formUrlEncodedContentType,
             headers: {
+              'accept': '*/*',
               'user-agent': _userAgentAppAndroid,
               'app-key': 'android64',
+              'bili-http-engine': 'cronet',
               'env': 'prod',
+              // 与心跳一致带上设备身份头：缺 buvid/session_id 时该接口更容易被风控拒
+              'buvid': LoginHttp.buvid,
+              'session_id': '11111111',
+              'x-bili-aurora-eid': '',
+              'x-bili-aurora-zone': '',
+              'x-bili-trace-id': Constants.traceId,
             },
           ),
         )
         .then((res) {
           final ok = res.data is Map && res.data['code'] == 0;
-          // 历史记录断记问题排查：首条结果与每次失败都写日志
-          // （官方参数集已核对：aid/cid/sid/epid/progress/duration/scene=front/
-          //   start_ts/device_ts/source/sub_type/type + 公参 + access_key + sign）
-          if (!ok || !_historyLogged) {
-            _historyLogged = true;
-            Utils.reportError(
-              '[DIAG] reportHistory ${ok ? 'ok' : 'failed'} '
-              'http=${res.statusCode} aid=${ctx.aid} cid=${ctx.cid} '
-              'progress=$progress completed=$completed: ${res.data}',
-            );
-          }
+          // 失败时把完整参数（除凭据）写进日志：-400 只能靠参数快照定位
           if (!ok) {
-            // APP 方式被拒：扫码签发的 access_key 与 android appkey 身份
-            // 不匹配时服务端会返回 -400 请求错误（心跳宽松/历史严格）。
-            // 回退 cookie 方式（SESSDATA + csrf，web 端长期验证的路径）
-            return _reportHistoryByCookie(ctx, progressValue);
-          }
-          return ok;
-        });
-  }
-
-  /// cookie 身份的历史上报（web 端同一接口，Request() 自带 SESSDATA）
-  static Future<bool> _reportHistoryByCookie(
-    VideoReportContext ctx,
-    int progressValue,
-  ) {
-    return Request()
-        .post(
-          'https://api.bilibili.com/x/v2/history/report',
-          data: {
-            'aid': ctx.aid,
-            'cid': ctx.cid,
-            'progress': progressValue,
-            'type': ctx.type,
-            'epid': ?ctx.epId,
-            'sid': ?ctx.seasonId,
-            'csrf': Accounts.heartbeat.csrf,
-          },
-          options: Options(contentType: Headers.formUrlEncodedContentType),
-        )
-        .then((res) {
-          final ok = res.data is Map && res.data['code'] == 0;
-          if (!ok || !_historyLogged) {
-            _historyLogged = true;
-            Utils.reportError(
-              '[DIAG] reportHistory(cookie) ${ok ? 'ok' : 'failed'} '
-              'aid=${ctx.aid} progress=$progressValue: ${res.data}',
+            final snapshot = Map.of(params)
+              ..remove('access_key')
+              ..remove('sign');
+            DiagLog.log(
+              'history.app.fail',
+              'reportHistory(app) failed http=${res.statusCode} '
+              'aid=${ctx.aid} cid=${ctx.cid} duration=${ctx.videoDuration} '
+              'progress=$progressValue resp=${res.data} params=$snapshot',
+            );
+          } else {
+            DiagLog.once(
+              'history.app.ok',
+              'reportHistory(app) ok aid=${ctx.aid} cid=${ctx.cid} '
+              'progress=$progressValue',
             );
           }
           return ok;
+        })
+        .catchError((Object e) {
+          DiagLog.log(
+            'history.app.err',
+            'reportHistory(app) 异常 aid=${ctx.aid} cid=${ctx.cid}: $e',
+          );
+          return false;
         });
   }
 

@@ -149,5 +149,8 @@ pili_release.json
 
 dist
 
-test*
+# 这里曾有一条过宽的 `test*` 规则：它把整个 test/ 目录挡在版本控制外，新写的
+# 回归测试（test/http/、test/utils/diag_log_test.dart）在 CI 和新克隆里根本不存在
+# —— `flutter test` 本地能过只是因为文件还在工作区。已删除；要忽略临时产物
+# 请写具体名字。
 .flutter_tool_state

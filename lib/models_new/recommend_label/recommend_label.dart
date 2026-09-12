@@ -79,6 +79,9 @@ class RecLabelPageMaterial {
   final String? moreInterestButton;
   final String? noteText;
 
+  /// 恢复默认的二次确认弹窗文案（官方 BackToDefaultWindow）
+  final RecLabelBackToDefaultWindow? backToDefaultWindow;
+
   RecLabelPageMaterial.fromJson(Map<String, dynamic> json)
     : title = json['title'],
       subtitle = json['subtitle'],
@@ -86,7 +89,28 @@ class RecLabelPageMaterial {
       editButtonText = json['edit_button_text'],
       backToDefaultButton = json['back_to_default_button'],
       moreInterestButton = json['more_interest_button'],
-      noteText = json['note_text'];
+      noteText = json['note_text'],
+      backToDefaultWindow = json['back_to_default_window'] is Map
+          ? RecLabelBackToDefaultWindow.fromJson(
+              (json['back_to_default_window'] as Map).cast<String, dynamic>(),
+            )
+          : null;
+}
+
+/// 恢复默认确认弹窗（官方 data.BackToDefaultWindow）
+class RecLabelBackToDefaultWindow {
+  final String? title;
+  final String? subtitle;
+  final String? cancelButton;
+  final String? confirmButton;
+  final String? toast;
+
+  RecLabelBackToDefaultWindow.fromJson(Map<String, dynamic> json)
+    : title = json['title'],
+      subtitle = json['subtitle'],
+      cancelButton = json['cancel_button'],
+      confirmButton = json['confirm_button'],
+      toast = json['toast'];
 }
 
 /// 编辑页文案
@@ -133,17 +157,22 @@ class RecDistributionArea {
 }
 
 /// GET /x/v2/feed/uinterest/more 的响应
+/// （官方 data.RecommendLabelMoreResponse：labels/title/subtitle/add_button/toast）
 class RecLabelMoreResponse {
   final List<String> labels;
+  final String? title;
   final String? subtitle;
   final String? addButton;
+  final String? toast;
 
   RecLabelMoreResponse.fromJson(Map<String, dynamic> json)
     : labels = (json['labels'] as List? ?? const [])
           .map((e) => e.toString())
           .toList(),
+      title = json['title'],
       subtitle = json['subtitle'],
-      addButton = json['add_button'];
+      addButton = json['add_button'],
+      toast = json['toast'];
 }
 
 /// 从标签集合提取提交参数用的 name 列表

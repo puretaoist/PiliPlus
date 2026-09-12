@@ -8,6 +8,7 @@ import 'package:PiliPlus/common/widgets/loading_widget/loading_widget.dart';
 import 'package:PiliPlus/common/widgets/selection_text.dart';
 import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/utils/date_utils.dart';
+import 'package:PiliPlus/utils/diag_log.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -114,10 +115,16 @@ class _LogsPageState extends State<LogsPage> {
           'piliplus_log_${DateTime.now().millisecondsSinceEpoch}.log';
       final target = File(p.join(dir.path, name));
       await target.writeAsString(await file.readAsString());
+      // 导出动作本身也记一条：反馈问题时能确认"这份日志覆盖到哪个时间点、
+      // 里面有没有目标链路的行"
+      DiagLog.always(
+        '导出日志：$name（${await target.length()} bytes）',
+      );
       await SharePlus.instance.share(
         ShareParams(files: [XFile(target.path)], subject: 'PiliPlus 日志'),
       );
     } catch (e) {
+      DiagLog.log('log.export.err', '导出日志失败: $e');
       toast('导出失败: $e');
     }
   }

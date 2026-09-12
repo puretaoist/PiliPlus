@@ -6,6 +6,7 @@ import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
+import 'package:PiliPlus/utils/diag_log.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
@@ -23,6 +24,11 @@ abstract final class Update {
     // 自构建版本（编译时未传 pili_release.json，buildTime 为 0）不检查更新：
     // 包名/签名与发布版不同，下载下来也覆盖不了
     if (BuildConfig.buildTime == 0) {
+      DiagLog.once(
+        'update.skip',
+        '更新检查：自构建版本（buildTime=0），跳过（包名/签名与发布版不同，'
+        '下载也覆盖不了）',
+      );
       if (!isAuto) {
         SmartDialog.showToast('当前为自构建版本，不检查更新');
       }
@@ -37,12 +43,14 @@ abstract final class Update {
         ),
       );
       if (res.data is Map) {
+        DiagLog.log('update.fail', '更新检查失败：接口未返回列表 ${res.data}');
         if (!isAuto) {
           SmartDialog.showToast('检查更新失败，GitHub接口未返回数据，请检查网络');
         }
         return;
       }
       if (res.data.isEmpty) {
+        DiagLog.log('update.empty', '更新检查：暂无可用版本');
         if (!isAuto) {
           SmartDialog.showToast('暂无可用版本');
         }
@@ -52,10 +60,20 @@ abstract final class Update {
       final int latest =
           DateTime.parse(data['created_at']).millisecondsSinceEpoch ~/ 1000;
       if (BuildConfig.buildTime >= latest) {
+        DiagLog.once(
+          'update.latest',
+          '更新检查：已是最新（本地 buildTime=${BuildConfig.buildTime} '
+          '≥ 远端 $latest）',
+        );
         if (!isAuto) {
           SmartDialog.showToast('已是最新版本');
         }
       } else {
+        DiagLog.once(
+          'update.available',
+          '更新检查：发现新版本 ${data['tag_name']}'
+          '（本地 buildTime=${BuildConfig.buildTime} < 远端 $latest）',
+        );
         SmartDialog.show(
           animationType: SmartAnimationType.centerFade_otherSlide,
           builder: (context) {
@@ -125,6 +143,7 @@ abstract final class Update {
         );
       }
     } catch (e) {
+      DiagLog.log('update.err', '更新检查异常: $e');
       if (kDebugMode) debugPrint('failed to check update: $e');
     }
   }

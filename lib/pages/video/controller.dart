@@ -57,6 +57,7 @@ import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/download/download_service.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/connectivity_utils.dart';
+import 'package:PiliPlus/utils/diag_log.dart';
 import 'package:PiliPlus/utils/extension/context_ext.dart';
 import 'package:PiliPlus/utils/extension/iterable_ext.dart';
 import 'package:PiliPlus/utils/extension/nested_scroll_ext.dart';
@@ -822,15 +823,28 @@ class VideoDetailController extends GetxController
         if (await _probeGrpcStream(response)) {
           // 标记来源，播放器据此决定 UA/Referer（app 流不能带 Referer）
           plPlayerController.appStreamHeaders = true;
+          DiagLog.once(
+            'grpc.ok',
+            'grpc app 取流成功 aid=$aid cid=${cid.value} qn=$quality '
+            '档位=${response.dash?.video?.length ?? 0} 条（app 流，不带 Referer）',
+          );
           return res;
         }
         // 拉不通多为 CDN 地域/临时策略，静默回退即可，不必每次进视频都弹提示。
         // 记进可导出日志，便于排查"为什么没走 4K/app 流"
-        Utils.reportError('[DIAG] grpc stream unreachable, fallback to web');
+        DiagLog.log(
+          'grpc.unreachable',
+          'grpc app 流探测不可达 → 回退 web 取流 aid=$aid cid=${cid.value} '
+          'qn=$quality 档位=${response.dash?.video?.length ?? 0} 条',
+        );
         return _webVideoUrl(quality);
       }
       // gRPC 取流失败时回退到 web 接口，避免开关打开后完全无法播放
       if (res case Error(:final errMsg)) {
+        DiagLog.log(
+          'grpc.error',
+          'grpc 取流失败 aid=$aid cid=${cid.value} qn=$quality: $errMsg',
+        );
         SmartDialog.showToast('4K取流失败，已回退：$errMsg');
         if (kDebugMode) {
           debugPrint('playViewUnite failed: $errMsg');
@@ -878,6 +892,10 @@ class VideoDetailController extends GetxController
   Future<bool> _probeGrpcStream(PlayUrlModel model) async {
     final videos = model.dash?.video ?? const <VideoItem>[];
     if (videos.isEmpty) {
+      DiagLog.log(
+        'grpc.probe.empty',
+        'grpc app 取流返回空 dash（无可用档位）→ 回退 web 取流',
+      );
       return false;
     }
     // 只试前两档（列表按画质从高到低），两档并行探测，任一可拉即认为可用；
@@ -907,11 +925,13 @@ class VideoDetailController extends GetxController
       if (r.statusCode == 200 || r.statusCode == 206) {
         return true;
       }
-      if (kDebugMode) {
-        debugPrint('probe stream ${r.statusCode}: $url');
-      }
+      // app 流被 CDN 拒绝通常就是 403：URL 里带凭据，只记状态码与 host
+      DiagLog.log(
+        'grpc.probe.status',
+        'app 流探测非 2xx：HTTP ${r.statusCode} host=${Uri.tryParse(url)?.host}',
+      );
     } catch (e) {
-      Utils.reportError('[DIAG] probe stream error: $e');
+      DiagLog.log('grpc.probe.err', 'app 流探测异常 host=${Uri.tryParse(url)?.host}: $e');
     }
     return false;
   }

@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -7,8 +5,38 @@ import 'package:PiliPlus/http/login.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/models_new/recommend_label/recommend_label.dart';
 import 'package:PiliPlus/utils/accounts.dart';
-import 'package:PiliPlus/utils/utils.dart';
+import 'package:PiliPlus/utils/diag_log.dart';
 import 'package:dio/dio.dart';
+
+/// mng 接口的 action 取值。
+///
+/// 逆向自官方 APK 8.62：
+/// `com.bilibili.pegasus.recommendlabel.l0#c(list, list, str, int, ...)`
+/// → `RecommendLabelApiService.managerRecommendLabel(fixed, unfixed, changed, action)`
+///
+/// 官方客户端每次只改一个标签，提交的是**变更后的全量快照**：
+/// - `fixed_label`   = 变更后 is_fixed==1 的标签名（l0 里 `g0.a`，由 `labels` 过滤得到）
+/// - `unfixed_label` = 变更后 is_fixed==0 的标签名（l0 里 `g0.b`）
+/// - `changed_label` = 本次改动的标签名（批量时是多个名字）
+///
+/// | action | 语义 | fixed_label | unfixed_label | changed_label |
+/// |---|---|---|---|---|
+/// | 1 | 取消固定（降级为自选） | 去掉该标签 | 加上该标签 | 该标签名 |
+/// | 2 | 删除固定标签 | 去掉该标签 | 不变 | 该标签名 |
+/// | 3 | 删除自选标签 | 不变 | 去掉该标签 | 该标签名 |
+/// | 4 | 自选升为固定 | 加上该标签 | 去掉该标签 | 该标签名 |
+/// | 5 | 新增单个标签 | 新标签 + 原 fixed | 不变 | 该标签名 |
+/// | 6 | 恢复默认 | 空 | 空 | 不传 |
+/// | 7 | 批量新增 | 勾选标签 + 原 fixed | 不变 | 勾选名逗号拼接 |
+abstract final class RecLabelAction {
+  static const int cancelFixed = 1;
+  static const int deleteFixed = 2;
+  static const int deleteUnfixed = 3;
+  static const int fixUnfixed = 4;
+  static const int addLabel = 5;
+  static const int resetDefault = 6;
+  static const int batchAdd = 7;
+}
 
 /// 官方「内容偏好调节」接口
 /// 逆向自官方客户端 tv.danmaku.bili 的 RecommendLabelApiService（2026-09）
@@ -53,7 +81,7 @@ abstract final class RecommendLabelHttp {
       return Success(fromJson(const {}));
     }
     final msg = res.data is Map ? res.data['message'] : res.toString();
-    Utils.reportError('[DIAG] uinterest failed: ${res.data}');
+    DiagLog.log('uinterest.fail', 'uinterest 读取失败: ${res.data}');
     return Error(msg ?? '请求失败');
   }
 
@@ -77,10 +105,33 @@ abstract final class RecommendLabelHttp {
     return _parse(res, RecLabelMoreResponse.fromJson);
   }
 
-  /// 写：提交修改。
-  /// [fixedLabel] 固定标签（服务端标记 is_fixed，不可移除，但提交时仍要带上）
-  /// [unfixedLabel] 自选标签全集（提交后的最终状态，不是增量）
-  /// [action] 官方为 int：1=保存修改，2=恢复默认（实测校准）
+  /// 组装 mng 的表单字段（独立出来便于单元测试守护字段编码，
+  /// 见 test/http/recommend_label_test.dart）
+  ///
+  /// 关键：`fixed_label` / `unfixed_label` 是**标签名用 "," 拼接的字符串**，
+  /// 与官方 Kotlin 侧的 `Jt0.b.a(List<String>)` 一致；早期实现发的是
+  /// `jsonEncode(list)`（`["a","b"]`），服务端会把它当成一个标签名，
+  /// 于是"提交成功但偏好没变"。
+  static Map<String, dynamic> buildMngBody({
+    required List<String> fixedLabel,
+    required List<String> unfixedLabel,
+    String? changedLabel,
+    required int action,
+  }) => {
+    'fixed_label': fixedLabel.join(','),
+    'unfixed_label': unfixedLabel.join(','),
+    // action 6（恢复默认）不传 changed_label
+    if (changedLabel != null && changedLabel.isNotEmpty)
+      'changed_label': changedLabel,
+    'action': action,
+  };
+
+  /// 写：提交偏好标签修改。
+  ///
+  /// [fixedLabel] 变更后 is_fixed==1 的标签名快照
+  /// [unfixedLabel] 变更后 is_fixed==0 的标签名快照
+  /// [changedLabel] 本次改动的标签名（action 7 时为多个名字）
+  /// [action] 见 [RecLabelAction]
   static Future<LoadingState<void>> managerLabel({
     required List<String> fixedLabel,
     required List<String> unfixedLabel,
@@ -91,24 +142,32 @@ abstract final class RecommendLabelHttp {
       '$_base/x/v2/feed/uinterest/mng',
       data: {
         ..._commonParams(),
-        'fixed_label': jsonEncode(fixedLabel),
-        'unfixed_label': jsonEncode(unfixedLabel),
-        'changed_label': ?changedLabel,
-        'action': action,
+        ...buildMngBody(
+          fixedLabel: fixedLabel,
+          unfixedLabel: unfixedLabel,
+          changedLabel: changedLabel,
+          action: action,
+        ),
       },
       options: _options.copyWith(
         contentType: Headers.formUrlEncodedContentType,
       ),
     );
     if (res.data is Map && res.data['code'] == 0) {
+      // 内容偏好是用户手动操作触发的低频写，成功也记一条：
+      // 出现"提交成功但偏好没变"时，能对照日志确认服务端确实收下了
+      DiagLog.always(
+        'uinterest/mng ok action=$action fixed=${fixedLabel.join(',')} '
+        'unfixed=${unfixedLabel.join(',')} changed=${changedLabel ?? '-'}',
+      );
       return const Success(null);
     }
     final msg = res.data is Map ? res.data['message'] : res.toString();
-    // action 的取值是逆向推断的（1=保存 / 2=恢复默认），提交失败时把
-    // 请求与响应一并记进可导出日志，便于真机校准
-    Utils.reportError(
-      '[DIAG] managerLabel failed action=$action '
-      'fixed=$fixedLabel unfixed=$unfixedLabel resp=${res.data}',
+    // 提交失败时把请求与响应一并记进可导出日志，便于真机校准
+    DiagLog.always(
+      'uinterest/mng failed action=$action '
+      'fixed=${fixedLabel.join(',')} unfixed=${unfixedLabel.join(',')} '
+      'changed=$changedLabel resp=${res.data}',
     );
     return Error(msg ?? '提交失败');
   }

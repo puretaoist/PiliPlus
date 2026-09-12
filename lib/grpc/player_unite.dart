@@ -16,6 +16,7 @@ import 'package:PiliPlus/models/common/video/audio_quality.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/diag_log.dart';
 import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:dio/dio.dart' show Options;
 import 'package:fixnum/fixnum.dart';
@@ -166,10 +167,20 @@ abstract final class PlayerUniteGrpc {
       final dashCount = vod.streamList.where((s) => s.hasDashVideo()).length;
       final multiCount =
           vod.streamList.where((s) => s.hasMultiDashVideo()).length;
+      DiagLog.log(
+        'grpc.parse.empty',
+        'playViewUnite 解析后无可用画质：流=$total dash=$dashCount '
+        'multi=$multiCount（多为账号无该档位授权或 needTrial 被拒）',
+      );
       return Error(
         '取流失败：服务端返回 $total 条流（dash=$dashCount, multi=$multiCount）',
       );
     }
+    DiagLog.once(
+      'grpc.parse.ok',
+      'playViewUnite 可用画质 ${grouped.keys.toList()..sort((a, b) => b.compareTo(a))}'
+      '（原始流 ${vod.streamList.length} 条）',
+    );
 
     // findAvailableVideoQuality 依赖“高画质在前”的顺序
     final qualities = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
