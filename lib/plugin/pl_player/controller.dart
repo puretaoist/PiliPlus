@@ -1518,33 +1518,79 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     Future<void> send() {
       final ctx = reportContext;
       if (ctx != null && (videoType ?? _videoType) == VideoType.ugc) {
+        // 上报前先校准时长：取流模型（PlayUrlModel.timeLength）在 gRPC 路径上
+        // 可能为 0，那样历史记录里这条就没有时长/时长对不上。有播放器实测值就补上
+        final playerSec = durationInMilliseconds ~/ 1000;
+        if (ctx.videoDuration <= 0) {
+          if (playerSec > 0) {
+            ctx.videoDuration = playerSec;
+            DiagLog.log(
+              'report.duration.missing',
+              '取流模型未提供 timelength，改用播放器实测时长 ${playerSec}s'
+              '（aid=${ctx.aid} cid=${ctx.cid}）',
+            );
+          } else {
+            DiagLog.log(
+              'report.duration.zero',
+              '拿不到视频时长，本次上报 duration=0（aid=${ctx.aid} cid=${ctx.cid}）',
+            );
+          }
+        } else if (playerSec > 0 && (playerSec - ctx.videoDuration).abs() > 2) {
+          DiagLog.log(
+            'report.duration.mismatch',
+            '上报时长与播放器实测不一致：上报=${ctx.videoDuration}s '
+            '实测=${playerSec}s（aid=${ctx.aid} cid=${ctx.cid}）',
+          );
+        }
+
         // 仅"真看完"才算结束：completed 类型在切换/退出视频时也会触发，
         // 但此时 progress 仍是当前值；只有播放到位（下方 case .completed
         // 中已置 progress=-1）才应标记看完，否则历史里所有视频都变"已看完"
         // （真机反馈）
         final isEnd = progress < 0;
+        // 再兜一道：media_kit 的 completed 事件在切视频/重新 open 播放列表时
+        // 也可能落到**新的** reportContext 上，于是刚打开的视频被报成"已看完"。
+        // 用"本次会话最大进度"判断 —— 离片尾还有 5s 以上就不允许标记看完，
+        // 如实上报实际进度（宁可显示进度，也不要把没看完的标成已看完）
+        var reportProgress = progress;
+        var completed = isEnd;
+        if (isEnd &&
+            ctx.videoDuration > 0 &&
+            ctx.maxProgress < ctx.videoDuration - 5) {
+          reportProgress = ctx.maxProgress;
+          completed = false;
+          DiagLog.log(
+            'history.completed.early',
+            '拦下误报的"已看完"：最大进度只有 ${ctx.maxProgress}s / '
+            '${ctx.videoDuration}s，改为按实际进度上报（aid=${ctx.aid} '
+            'cid=${ctx.cid}）',
+          );
+        }
         // position 每秒变化都会走到这里；官方移动端心跳是长间隔（约 60s），
         // 每秒打一次会被风控且费电。非结束状态按间隔节流，进度只在内存累积
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-        if (!isEnd && ctx.lastReportTs != 0 && now - ctx.lastReportTs < 60) {
+        if (!completed && ctx.lastReportTs != 0 && now - ctx.lastReportTs < 60) {
           ctx.updateProgress(progress);
           return Future.value();
         }
-        return VideoHttp.mobileHeartBeat(ctx, progress, completed: isEnd)
-            .then((ok) {
+        return VideoHttp.mobileHeartBeat(
+          ctx,
+          reportProgress,
+          completed: completed,
+        ).then((ok) {
           if (!ok) {
             // 归因心跳被服务端拒绝（真机日志显示 HTTP 层 badResponse，
             // 疑似风控）。回退 web 心跳，保证进度上报与历史记录不丢
             DiagLog.log(
               'heartbeat.webFallback',
               'mobile 心跳被拒 → 回退 web 心跳 aid=${ctx.aid} cid=${ctx.cid} '
-              'progress=$progress completed=$isEnd',
+              'progress=$reportProgress completed=$completed',
             );
             return VideoHttp.heartBeat(
               aid: aid ?? _aid,
               bvid: bvid ?? _bvid,
               cid: cid ?? this.cid,
-              progress: progress,
+              progress: reportProgress,
               epid: epid ?? _epid,
               seasonId: seasonId ?? _seasonId,
               subType: pgcType ?? _pgcType,
@@ -1555,8 +1601,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           // （此前靠失败回退 web 心跳顺带记录，心跳打通后断记）
           return VideoHttp.reportHistory(
             ctx: ctx,
-            progress: progress,
-            completed: isEnd,
+            progress: reportProgress,
+            completed: completed,
           ).then((historyOk) {
             // 双保险：历史上报失败时回退 web 心跳（它同样会写历史），
             // 避免任何一条链路失败就断记
@@ -1564,13 +1610,13 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               DiagLog.log(
                 'history.webFallback',
                 '历史上报失败 → 回退 web 心跳（顺带写历史）aid=${ctx.aid} '
-                'cid=${ctx.cid} progress=$progress completed=$isEnd',
+                'cid=${ctx.cid} progress=$reportProgress completed=$completed',
               );
               return VideoHttp.heartBeat(
                 aid: aid ?? _aid,
                 bvid: bvid ?? _bvid,
                 cid: cid ?? this.cid,
-                progress: progress,
+                progress: reportProgress,
                 epid: epid ?? _epid,
                 seasonId: seasonId ?? _seasonId,
                 subType: pgcType ?? _pgcType,

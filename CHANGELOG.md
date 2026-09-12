@@ -2,6 +2,35 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-09-12 历史记录的时长/进度可信化
+
+反馈"历史记录的视频时长与真实的相悖"。先把上报值拿来对账：把日志里 8 条
+`mobileHeartBeat` 的 `video_duration` 与公开的 `/x/web-interface/view`
+逐分P真实时长比对（脚本 `bilibili/check_duration.py`），**8/8 一致**
+（差值都是 -1s，来自 `timelength(ms) ~/ 1000` 的向下取整）：
+
+```
+aid 117233464379094  cid 41684437830  real 124s   reported 123s
+aid 117133841336527  cid 41134588587  real 2102s  reported 2101s   … 全部一致
+```
+
+所以**上报的时长本身是对的**，对不上的更可能是历史记录角标里的"已看完"状态
+（`pages/history/widgets/item.dart`：`progress == -1` 时角标显示"已看完"，
+否则显示 `进度/时长`）。据此做两处加固：
+
+- **时长兜底**：`VideoReportContext.videoDuration` 改为可变。取流模型
+  （`PlayUrlModel.timeLength`）在 gRPC 路径上可能为 0，上报前用播放器实测
+  时长（`durationInMilliseconds`）补齐；仍然拿不到就按异常记
+  `report.duration.zero`，与实测值差 >2s 记 `report.duration.mismatch`
+- **"已看完"必须名副其实**：`media_kit` 的 `completed` 事件在切视频/重新
+  `open` 播放列表时也可能落到**新的** `reportContext` 上，把刚打开的视频报成
+  "已看完"。现在用会话内最大进度兜一道：`maxProgress < videoDuration - 5s`
+  就不允许标记看完，改为如实上报实际进度，并记 `history.completed.early`
+  （宁可显示进度，也不要把没看完的标成已看完）
+
+排查脚本 `bilibili/check_duration.py <日志或 grep 结果>` 可复用：它把日志里
+上报的 `video_duration` 与真实时长逐条对账。
+
 ## 2026-09-12 全链路诊断日志 + 播放历史 -400 修复
 
 真机日志（`piliplus_log_1789220265150.log`）统计出来的两类问题：

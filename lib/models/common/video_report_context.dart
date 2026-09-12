@@ -25,7 +25,13 @@ class VideoReportContext {
   final int? subType;
   final int? epId;
   final int? seasonId;
-  final int videoDuration;
+
+  /// 视频总时长（秒）。
+  ///
+  /// 默认取取流模型的 `timelength`；gRPC（playviewunite）路径上该字段可能为 0，
+  /// 所以上报前会用**播放器实测时长**兜底（见 PlPlayerController.makeHeartBeat），
+  /// 否则历史记录里这条视频会没有时长
+  int videoDuration;
   final int quality;
 
   /// 播放会话 id，会话内固定
