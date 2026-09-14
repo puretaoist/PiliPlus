@@ -1548,23 +1548,40 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         // 中已置 progress=-1）才应标记看完，否则历史里所有视频都变"已看完"
         // （真机反馈）
         final isEnd = progress < 0;
-        // 再兜一道：media_kit 的 completed 事件在切视频/重新 open 播放列表时
-        // 也可能落到**新的** reportContext 上，于是刚打开的视频被报成"已看完"。
-        // 用"本次会话最大进度"判断 —— 离片尾还有 5s 以上就不允许标记看完，
-        // 如实上报实际进度（宁可显示进度，也不要把没看完的标成已看完）
+        // 再兜两道 —— 历史里"没看完却被标成已看完"只有一个来源（上报了 -1）：
+        //   ① 播放器自己是否真在片尾（duration/position 是播放器实测值，最可信；
+        //      切视频后 position 归零，这一条就能拦下）
+        //   ② 本次会话的最大进度是否到了片尾（media_kit 的 completed 事件在切视频
+        //      /重新 open 播放列表时可能落到**新的** reportContext 上）
+        // 判据不足时不硬猜：宁可不报 -1，也不要谎报"看完"
         var reportProgress = progress;
         var completed = isEnd;
-        if (isEnd &&
-            ctx.videoDuration > 0 &&
-            ctx.maxProgress < ctx.videoDuration - 5) {
-          reportProgress = ctx.maxProgress;
-          completed = false;
-          DiagLog.log(
-            'history.completed.early',
-            '拦下误报的"已看完"：最大进度只有 ${ctx.maxProgress}s / '
-            '${ctx.videoDuration}s，改为按实际进度上报（aid=${ctx.aid} '
-            'cid=${ctx.cid}）',
-          );
+        if (completed) {
+          final playerAtEnd =
+              durationInMilliseconds > 0 &&
+              (durationInMilliseconds - positionInMilliseconds) <= 1000;
+          // ctx 拿不到时长时（取流模型没给、播放器也还没测出来）只能信播放器
+          final sessionAtEnd =
+              ctx.videoDuration <= 0 ||
+              ctx.maxProgress >= ctx.videoDuration - 5;
+          if (!playerAtEnd || !sessionAtEnd) {
+            completed = false;
+            reportProgress = ctx.maxProgress;
+            DiagLog.log(
+              'history.completed.early',
+              '拦下误报的"已看完"：播放器 '
+              'position=${positionInMilliseconds ~/ 1000}s/'
+              'duration=${durationInMilliseconds ~/ 1000}s，会话最大进度 '
+              '${ctx.maxProgress}s/${ctx.videoDuration}s'
+              '（aid=${ctx.aid} cid=${ctx.cid}）'
+              '${reportProgress > 0 ? '，改为按实际进度上报' : '，本会话还没有可信进度，本次不报'}',
+            );
+            if (reportProgress <= 0) {
+              // 没有可信进度时报什么都不对（position 可能是上一个视频的），
+              // 干脆不报；周期心跳本来就在持续写进度
+              return Future.value();
+            }
+          }
         }
         // ① 写观看进度（历史记录）：web 心跳 /x/click-interface/web/heartbeat，
         //    表单里的 played_time 就是进度秒数（看完传 -1）。这是上游长期验证

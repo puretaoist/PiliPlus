@@ -2,6 +2,29 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-09-14 没看完的视频被标成"已看完"（第二道拦截 + 构建身份可辨）
+
+反馈"当前包下仍有没看完的视频被归为已看完"。先从日志确认在跑的到底是哪版：
+`piliplus_log_1789361123441.log` 里直到 09/14 12:07 都还有 `mobileHeartBeat ok`、
+`首页推荐拉取`、`心跳节流生效` 这些在 `7a6bebc9b` 就删掉的"成功日志" —— 说明
+当时跑的是 `c71b94ea4`，**`history.completed.early` 拦截（`e1cdac31f`）根本不在包里**。
+
+在此基础上把拦截做扎实（原来只有一个判据）：
+
+- **① 播放器自证**：`duration - position <= 1s`（播放器实测值最可信；切视频后
+  position 归零，这一条就能拦下把刚打开的视频标成已看完）
+- **② 会话自证**：本次会话 `maxProgress` 到过片尾（拦 media_kit 的 `completed`
+  事件落到**新的** `reportContext` 上那种串场）
+- 两条都过不了就不报 `-1`：有可信进度就按实际进度上报，没有就**本次不报**
+  （position 可能是上一个视频的，报什么都不对；周期心跳本来就在持续写进度）
+
+顺带解决"这份日志是哪版跑出来的"这个反复踩的坑：
+
+- CI 构建加 `--dart-define=pili.hash=$(git rev-parse --short HEAD)`，
+  `BuildConfig.commitHash` 会进每条日志的 `customParameters` —— 以后拿到导出的
+  日志一眼就能确认构建（**不传** `pili.time`，自构建版本靠 `buildTime == 0`
+  跳过更新检查，这个行为要保留）
+
 ## 2026-09-12 历史进度不再更新（真机：看5分钟记00:15）—— 根因与修复
 
 反馈："实际看了 5:00，记录却是 00:15，从历史记录再点进去从 00:15 开始。"

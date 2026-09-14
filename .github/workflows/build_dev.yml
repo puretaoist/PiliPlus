@@ -53,8 +53,14 @@ jobs:
             echo keyPassword='${{ secrets.KEY_PASSWORD }}' >> android/key.properties
           fi
 
+      # 带上 commit hash：BuildConfig.commitHash 会进日志的 customParameters，
+      # 这样拿到一份导出的日志就能确定它是哪个构建产出的
+      # （以前只能靠"日志里出现了哪些行"反推是哪版，2026-09-12 因此误判过一次）。
+      # 注意**不要**传 pili.time —— 自构建版本靠 buildTime == 0 跳过更新检查
       - name: 构建 dev APK
-        run: flutter build apk --release --split-per-abi --android-project-arg dev=1 --no-pub
+        run: |
+          flutter build apk --release --split-per-abi --android-project-arg dev=1 --no-pub \
+            --dart-define=pili.hash=$(git rev-parse --short HEAD)
 
       - name: 上传 arm64-v8a
         uses: actions/upload-artifact@v7
