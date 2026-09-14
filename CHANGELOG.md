@@ -122,6 +122,14 @@ aid 117133841336527  cid 41134588587  real 2102s  reported 2101s   … 全部一
 直接抛出，4K 取流的"失败→回退 web"分支根本走不到。现在统一转成
 `Error('grpc 请求异常: ...')` 并记日志，回退逻辑得以生效。
 
+**6. 又一轮日志复核（`piliplus_log_1789361123441.log`）去掉一类噪音**
+
+gRPC `code > 0` 是业务码而不是故障：日志里出现的
+`grpc 非 0 状态 ... code=12061 msg=UP主已关闭评论区` 属于正常交互结果、
+UI 自己会提示，不该进诊断日志。现在业务码只在**取流链路**
+（`GrpcUrl.playViewUnite`，fork 自己改的）才记，其余只在系统级失败
+（无 code / code ≤ 0）时记。
+
 ## 2026-09-12 内容偏好管理（uinterest/mng）契约修正 + 页面崩溃修复
 
 真机日志（`piliplus_log_*.log`）里抓到内容偏好页的三次 `Null check operator

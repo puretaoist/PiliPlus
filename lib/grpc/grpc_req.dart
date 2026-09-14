@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:PiliPlus/grpc/bilibili/rpc.pb.dart';
+import 'package:PiliPlus/grpc/url.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
@@ -119,12 +120,18 @@ abstract final class GrpcReq {
             msg = utf8.decode(msgBytes, allowMalformed: true);
           }
         }
-        DiagLog.log(
-          'grpc.status',
-          'grpc 非 0 状态 url=$url status='
-          '${response.headers.value('Grpc-Status')} code=$code '
-          'msg=${msg.length > 200 ? '${msg.substring(0, 200)}…' : msg}',
-        );
+        // 只记"系统级"失败：`code > 0` 是业务码（如 12061「UP主已关闭评论区」），
+        // UI 自己会提示，属正常交互结果，不该进诊断日志；取流链路是 fork 自己
+        // 改的，业务码也要留痕（真机排查 4K 问题要靠它）
+        final isBusinessCode = code != null && code > 0;
+        if (!isBusinessCode || url == GrpcUrl.playViewUnite) {
+          DiagLog.log(
+            'grpc.status',
+            'grpc 非 0 状态 url=$url status='
+            '${response.headers.value('Grpc-Status')} code=$code '
+            'msg=${msg.length > 200 ? '${msg.substring(0, 200)}…' : msg}',
+          );
+        }
         return Error(msg, code: code);
       } catch (e) {
         DiagLog.log('grpc.status.err', 'grpc 错误详情解析失败 url=$url: $e');
