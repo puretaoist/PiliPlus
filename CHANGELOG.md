@@ -2,6 +2,35 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-09-18 分集面板 index 越界崩溃（真机 RangeError）
+
+真机日志（`piliplus_log_1789704124003.log`，09/16 22:26 连续三条）抓到分集面板崩溃：
+
+```
+RangeError (length): Invalid value: Not in inclusive range 0..5: 6
+  #1 _IndicatorPainter.centerOf (material_ui/src/tabs.dart:604)   ← TabBar 指示器
+  #2 _TabBarState._tabScrollOffset → _handleTabControllerTick
+RangeError (length): Invalid value: Not in inclusive range 0..4: 5
+  #1 _EpisodePanelState._buildBody (pages/episode_panel/view.dart)
+RangeError (length): Invalid value: Not in inclusive range 0..4: 6
+  #0 _EpisodePanelState.didUpdateWidget.jumpToCurrent (pages/episode_panel/view.dart)
+```
+
+**根因**：`EpisodePanel` 的 tab 控制器与每个 tab 的滚动控制器都是 `late final`，
+只在 `initState` 按当时的 `widget.list.length` 建一次；而分集数据会在**同一个
+State** 上变长变短（合集加载完从 1 个 tab 变成 N 个、切视频、番剧换季），
+`widget.initialTabIndex` 又是父级按新列表算的 —— index 于是落到控制器列表之外，
+连插件内部的 TabBar 指示器也一起越界。
+
+**修复**：
+
+- `_initControllers()` 抽出来，`initState` 与 `didUpdateWidget`（列表长度变化时）
+  都调用；重建前 dispose 旧的 tab / 滚动控制器
+- 所有取下标的地方统一夹到 `[0, list.length-1]`：新增 `_tabIndex`（当前 tab）
+  与 `_safeInitialTabIndex`（父级给的初始 tab），替换 `_getCurrEpisodes`、
+  `_animToTopOrBottom`、跳至当前、顺序/倒序按钮等 6 处
+- `_getCurrEpisodes` 对空列表返回空，避免 `widget.list[0]` 越界
+
 ## 2026-09-14 没看完的视频被标成"已看完"（第二道拦截 + 构建身份可辨）
 
 反馈"当前包下仍有没看完的视频被归为已看完"。先从日志确认在跑的到底是哪版：

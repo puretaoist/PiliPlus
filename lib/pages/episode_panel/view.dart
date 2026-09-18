@@ -87,15 +87,30 @@ class EpisodePanel extends CommonSlidePage {
 class _EpisodePanelState extends State<EpisodePanel>
     with TickerProviderStateMixin, CommonSlideMixin {
   // tab
-  late final TabController _tabController;
+  late TabController _tabController;
   late final RxInt _currentTabIndex = _tabController.index.obs;
 
   late final showTitle = widget.showTitle;
 
+  /// 夹进合法范围的 tab 下标。
+  ///
+  /// 分集数据会在**同一个 State** 上更新（切视频、番剧换季、合集从 1 个 tab
+  /// 变成 N 个），而 tab 下标来自父级与新列表，控制器列表却是按长度建的；
+  /// 不夹的话真机会抛 RangeError（2026-09-16 22:26 连续三条：
+  /// `0..5: 6` ← material_ui tabs.dart `_IndicatorPainter.centerOf`、
+  /// `0..4: 5` / `0..4: 6` ← 本文件 `_buildBody` / `jumpToCurrent`）
+  int get _tabIndex =>
+      _currentTabIndex.value.clamp(0, max(0, widget.list.length - 1));
+
+  int get _safeInitialTabIndex =>
+      widget.initialTabIndex.clamp(0, max(0, widget.list.length - 1));
+
   List<ugc.BaseEpisodeItem> get _getCurrEpisodes =>
-      widget.type == EpisodeType.season
-      ? widget.list[_currentTabIndex.value].episodes
-      : widget.list[_currentTabIndex.value];
+      widget.list.isEmpty
+      ? const []
+      : widget.type == EpisodeType.season
+      ? widget.list[_tabIndex].episodes
+      : widget.list[_tabIndex];
 
   // item
   late int _currentItemIndex;
@@ -104,8 +119,8 @@ class _EpisodePanelState extends State<EpisodePanel>
     _getCurrEpisodes.indexWhere((item) => item.cid == widget.cid),
   );
 
-  late final List<bool> _isReversed;
-  late final List<ScrollController> _itemScrollController;
+  late List<bool> _isReversed;
+  late List<ScrollController> _itemScrollController;
 
   // fav
   Rx<LoadingState<bool>>? _favState;
@@ -114,9 +129,47 @@ class _EpisodePanelState extends State<EpisodePanel>
     _currentTabIndex.value = _tabController.index;
   }
 
+  /// 按当前 [EpisodePanel.list] 建立 tab 控制器与每个 tab 的滚动控制器。
+  ///
+  /// initState 与 didUpdateWidget（列表长度变化时）都会调用 ——
+  /// 以前只在 initState 建一次，长度变化后下标就越界了（见 [_tabIndex] 注释）。
+  void _initControllers() {
+    final length = max(1, widget.list.length);
+    _tabController = TabController(
+      initialIndex: _safeInitialTabIndex,
+      length: length,
+      vsync: this,
+    )..addListener(listener);
+    _currentTabIndex.value = _tabController.index;
+    _currentItemIndex = _findCurrentItemIndex;
+    _itemScrollController = List.generate(
+      length,
+      (i) => ScrollController(
+        initialScrollOffset: i == _safeInitialTabIndex
+            ? _currentItemIndex == 0
+                  ? 0
+                  : _calcItemOffset(_currentItemIndex)
+            : 0,
+      ),
+      growable: false,
+    );
+    _isReversed = List.filled(length, false);
+  }
+
   @override
   void didUpdateWidget(EpisodePanel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // 分集列表变长/变短（合集加载完、切视频、番剧换季）时重建控制器：
+    // 控制器是按下标建的，长度变了必须跟着重建，否则 index 会越界
+    if (widget.list.length != oldWidget.list.length) {
+      for (final c in _itemScrollController) {
+        c.dispose();
+      }
+      _tabController
+        ..removeListener(listener)
+        ..dispose();
+      _initControllers();
+    }
     if (showTitle) {
       return;
     }
@@ -127,7 +180,7 @@ class _EpisodePanelState extends State<EpisodePanel>
       if (_currentItemIndex != newItemIndex) {
         _currentItemIndex = newItemIndex;
         try {
-          _itemScrollController[_currentTabIndex.value].jumpTo(
+          _itemScrollController[_tabIndex].jumpTo(
             _calcItemOffset(newItemIndex),
           );
         } catch (e, s) {
@@ -137,9 +190,9 @@ class _EpisodePanelState extends State<EpisodePanel>
     }
 
     // jump to current
-    if (_currentTabIndex.value != widget.initialTabIndex) {
+    if (_currentTabIndex.value != _safeInitialTabIndex) {
       _tabController.animateTo(
-        widget.initialTabIndex,
+        _safeInitialTabIndex,
         duration: const Duration(milliseconds: 200),
       );
       Future.delayed(const Duration(milliseconds: 300), jumpToCurrent);
@@ -151,25 +204,7 @@ class _EpisodePanelState extends State<EpisodePanel>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(
-      initialIndex: widget.initialTabIndex,
-      length: widget.list.length,
-      vsync: this,
-    )..addListener(listener);
-
-    _currentItemIndex = _findCurrentItemIndex;
-    _itemScrollController = List.generate(
-      widget.list.length,
-      (i) => ScrollController(
-        initialScrollOffset: i == widget.initialTabIndex
-            ? _currentItemIndex == 0
-                  ? 0
-                  : _calcItemOffset(_currentItemIndex)
-            : 0,
-      ),
-      growable: false,
-    );
-    _isReversed = List.filled(widget.list.length, false);
+    _initControllers();
 
     if (widget.type == EpisodeType.season && Accounts.main.isLogin) {
       final favState =
@@ -634,7 +669,7 @@ class _EpisodePanelState extends State<EpisodePanel>
   );
 
   void _animToTopOrBottom({bool top = true}) {
-    final tabIndex = _currentTabIndex.value;
+    final tabIndex = _tabIndex;
     _itemScrollController[tabIndex].animTo(
       top ^ _isReversed[tabIndex]
           ? 0
@@ -678,12 +713,12 @@ class _EpisodePanelState extends State<EpisodePanel>
           tooltip: '跳至当前',
           icon: const Icon(Icons.my_location),
           onPressed: () async {
-            final currentTabIndex = _currentTabIndex.value;
-            if (currentTabIndex != widget.initialTabIndex) {
-              _tabController.animateTo(widget.initialTabIndex);
+            final currentTabIndex = _tabIndex;
+            if (currentTabIndex != _safeInitialTabIndex) {
+              _tabController.animateTo(_safeInitialTabIndex);
               await Future.delayed(const Duration(milliseconds: 225));
             }
-            _itemScrollController[widget.initialTabIndex].animTo(
+            _itemScrollController[_safeInitialTabIndex].animTo(
               _calcItemOffset(_currentItemIndex),
               duration: const Duration(milliseconds: 200),
             );
@@ -692,7 +727,7 @@ class _EpisodePanelState extends State<EpisodePanel>
         if (widget.isSupportReverse == true)
           Obx(
             () {
-              return _currentTabIndex.value == widget.initialTabIndex
+              return _currentTabIndex.value == _safeInitialTabIndex
                   ? _buildReverseBtn
                   : const SizedBox.shrink();
             },
@@ -700,7 +735,7 @@ class _EpisodePanelState extends State<EpisodePanel>
         const Spacer(),
         Obx(
           () {
-            final currentTabIndex = _currentTabIndex.value;
+            final currentTabIndex = _tabIndex;
             return iconButton(
               iconSize: 22,
               tooltip: _isReversed[currentTabIndex] ? '顺序' : '倒序',
