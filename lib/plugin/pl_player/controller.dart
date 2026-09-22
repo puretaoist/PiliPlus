@@ -1518,8 +1518,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     Future<void> send() {
       final ctx = reportContext;
       if (ctx != null && (videoType ?? _videoType) == VideoType.ugc) {
-        // 上报前先校准时长：取流模型（PlayUrlModel.timeLength）在 gRPC 路径上
-        // 可能为 0，那样历史记录里这条就没有时长/时长对不上。有播放器实测值就补上
+        // 时长校准：取流模型（PlayUrlModel.timeLength）在 gRPC 路径上可能为 0，
+        // 那样历史记录里这条就没有时长。此时才退到播放器实测值 —— 真机对账
+        // （11 条，2026-09-19~21）显示**取流模型的值 11/11 与公开接口的真实时长
+        // 一致（差 1s 是 ~/1000 取整），而播放器的 durationInMilliseconds
+        // 0/11 准确（既可能偏小：886/1456，也可能偏大：1360/175，疑似 EDL
+        // 播放列表加载不全或残留上一个视频的值）。所以只做兜底，不做比对
         final playerSec = durationInMilliseconds ~/ 1000;
         if (ctx.videoDuration <= 0) {
           if (playerSec > 0) {
@@ -1535,12 +1539,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               '拿不到视频时长，本次上报 duration=0（aid=${ctx.aid} cid=${ctx.cid}）',
             );
           }
-        } else if (playerSec > 0 && (playerSec - ctx.videoDuration).abs() > 2) {
-          DiagLog.log(
-            'report.duration.mismatch',
-            '上报时长与播放器实测不一致：上报=${ctx.videoDuration}s '
-            '实测=${playerSec}s（aid=${ctx.aid} cid=${ctx.cid}）',
-          );
         }
 
         // 仅"真看完"才算结束：completed 类型在切换/退出视频时也会触发，
