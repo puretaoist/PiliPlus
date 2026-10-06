@@ -2,6 +2,56 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-10 上游同步 2.1.3 → 2.1.6（125 个提交）
+
+合并 `upstream/main`（`4ed5968f3` Release 2.1.6），291 个文件，**只有 2 个文件冲突**。
+
+**上游带来的关键变化**
+
+- **Flutter 3.47.2 → 3.47.6**（`366d6de18`）+ `.fvmrc` 同步；`material_ui` 解析到
+  **1.5.0**（原 1.2.0）
+- 依赖源换成上游的 fork：`media-kit`（`My-Responsitories` + `bggRGjQaUbCoE`）、
+  `audio_session`(dev)、`font_awesome_flutter`、`cached_network_image_ce`、
+  `flutter_inappwebview` 等；`file_picker ^13.1.0`
+- 播放器大改：`refa player bar`、`opt set playback speed`、
+  `skip to next/prev from audio session`、`opt update PlaybackState`（4 次）
+- 新功能：离线合集/离线跳过、iOS 画中画、转发时回复、搜索全量、桌面 webview 等
+
+**冲突解决（2 处，结论要留着）**
+
+1. `lib/http/video.dart` —— 上游改了 app 推荐参数与过滤 API
+   - **保留 fork 的实测参数**（`column_timestamp` / `device:pad` /
+     `device_name` 动态获取 / `flush` 走参数 / `login_event` / `video_mode` /
+     `voice_balance`）—— 这是归因心跳生效的前提，**别再被上游默认值覆盖**
+   - **采纳上游的 `_filterAppRcmd` + `RecommendFilter.filterWithExempt`**
+     （上游已把 `filter()` 改名，全仓无旧调用点）
+   - **保留 fork 的 `try/catch`**（单条脏数据不该让首页空白）
+2. `lib/pages/episode_panel/view.dart` —— 上游只把 `Future.delayed` 换成
+   `Future.pause`，**并没有修**那个 RangeError
+   - **保留 fork 的控制器重建修复**（`_initControllers` +
+     `_tabIndex` / `_safeInitialTabIndex` 夹取），采纳上游的 `Future.pause` 写法
+
+**补丁与本地环境**
+
+- 合并后必须重打补丁（SDK 与 material_ui 都换版本了）。按 CI 流程本地验证：
+  `patch.ps1 android` 在 **Flutter 3.47.6 + material_ui 1.5.0** 下
+  **25 个 SDK 补丁 + 9 个 material 补丁全部应用成功**
+- `patch.ps1` 在 **Windows 本地**直接跑会失败：android/ios/linux/macos 分支用
+  `~/.pub-cache`，只有 windows 分支用 `$env:LOCALAPPDATA/Pub/Cache`（CI 的 Linux
+  约定）。本机建一个 `~/.pub-cache` 目录联接指向真实缓存即可
+- `patch.ps1` 开头会把**全局 git 身份**改成 `ci/example@example.com`，
+  在开发者机器上跑完记得改回来
+- 上游自 `d1d5c323c` 起使用 `Future.pause(...)`（6 处），仓库与依赖里均无定义
+  —— 它是 **Flutter 3.47.6 的 API**，这也是本次必须升 SDK 的直接原因
+
+**验证**：`flutter analyze` 39 条 info（与合并前一致，**0 error 0 warning**）；
+`flutter test` **19/19 通过**；CI 构建 `b314cfe26` **success**（22.5 MB ×2）。
+
+**遗留风险**：上游播放器大改与 fork 的上报分层（`send()` /
+`_writePlaybackProgress`）落在同一文件（上游改了 395 行），编译通过但**行为只能
+在真机确认** —— 重点看心跳/历史是否仍正常（日志里不该有 `heartbeat.fail`、
+`history.*.fail`），以及倍速、上/下一个、进度条是否正常。
+
 ## 2026-09-22 时长对账：上报值是对的，播放器实测值不可靠（删掉误报日志）
 
 装上 `47ccbd66d` 后的真机日志（`piliplus_log_1789993045198.log`，09/18~09/21）
