@@ -8,6 +8,7 @@ import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/utils/bili_report_sign.dart';
 import 'package:PiliPlus/utils/diag_log.dart';
+import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/login.dart';
@@ -88,19 +89,44 @@ abstract final class VideoHttp {
       List<RcmdVideoItemModel> list = <RcmdVideoItemModel>[];
       for (final i in res.data['data']['item']) {
         //过滤掉live与ad，以及拉黑用户
-        if (i['goto'] == 'av' &&
-            (i['owner'] != null &&
-                !GlobalData().blackMids.contains(i['owner']['mid']))) {
-          RcmdVideoItemModel videoItem = RcmdVideoItemModel.fromJson(i);
-          if (!RecommendFilter.filter(videoItem)) {
-            list.add(videoItem);
-          }
+        if (_filterWebRcmd(i)) continue;
+        final videoItem = RcmdVideoItemModel.fromJson(i);
+        if (!RecommendFilter.filterWithExempt(videoItem)) {
+          list.add(videoItem);
         }
       }
       return Success(list);
     } else {
       return Error(res.data['message']);
     }
+  }
+
+  static bool _filterWebRcmd(dynamic i) {
+    if (i['goto'] != 'av') return true;
+    if (i['owner'] != null &&
+        GlobalData().blackMids.contains(i['owner']['mid'])) {
+      return true;
+    }
+    return false;
+  }
+
+  static bool _filterAppRcmd(dynamic i) {
+    if (i['card_goto'] == 'ad_av' ||
+        i['card_goto'] == 'ad_web_s' ||
+        i['ad_info'] != null ||
+        i['can_play'] != 1) {
+      return true;
+    }
+    if (i['args'] != null &&
+        GlobalData().blackMids.contains(i['args']['up_id'])) {
+      return true;
+    }
+    if (enableFilter &&
+        i['args']?['tname'] != null &&
+        zoneRegExp.hasMatch(i['args']['tname'])) {
+      return true;
+    }
+    return false;
   }
 
   // app 推荐接口的 idx 是续推游标（刷新传列表首条的 idx、加载更多传末条的 idx），不是页码
@@ -111,7 +137,7 @@ abstract final class VideoHttp {
   }) async {
     final isCold = idx == 0;
     final params = {
-      'build': 2001100,
+      'build': 8430300,
       'c_locale': 'zh_CN',
       'channel': 'master',
       // column/qn/player_extra_content/video_mode 等对齐 bbspace 的实测参数：
@@ -147,7 +173,7 @@ abstract final class VideoHttp {
       'recsys_mode': 0,
       's_locale': 'zh_CN',
       'splash_id': '',
-      'statistics': Constants.statistics,
+      'statistics': Constants.statisticsApp,
       'video_mode': 1,
       'voice_balance': 1,
     };
@@ -178,26 +204,16 @@ abstract final class VideoHttp {
         return Error('推荐列表为空（items=${items.runtimeType}）');
       }
       final list = <RcmdVideoItemAppModel>[];
+      // 拆出 _filterAppRcmd（上游实现）过滤推广/拉黑/分区屏蔽；
+      // try/catch 是本 fork 的加固：单条脏数据不该让首页空白
       try {
         for (final i in items.whereType<Map>()) {
-          // 屏蔽推广和拉黑用户
-          if (i['card_goto'] != 'ad_av' &&
-              i['card_goto'] != 'ad_web_s' &&
-              i['ad_info'] == null &&
-              i['can_play'] == 1 &&
-              (i['args'] != null &&
-                  !GlobalData().blackMids.contains(i['args']['up_id']))) {
-            if (enableFilter &&
-                i['args']?['tname'] != null &&
-                zoneRegExp.hasMatch(i['args']['tname'])) {
-              continue;
-            }
-            RcmdVideoItemAppModel videoItem = RcmdVideoItemAppModel.fromJson(
-              i.cast<String, dynamic>(),
-            );
-            if (!RecommendFilter.filter(videoItem)) {
-              list.add(videoItem);
-            }
+          if (_filterAppRcmd(i)) continue;
+          final videoItem = RcmdVideoItemAppModel.fromJson(
+            i.cast<String, dynamic>(),
+          );
+          if (!RecommendFilter.filterWithExempt(videoItem)) {
+            list.add(videoItem);
           }
         }
       } catch (e) {
@@ -210,6 +226,18 @@ abstract final class VideoHttp {
     }
   }
 
+  static bool _filterHotAndRank(dynamic i) {
+    if (GlobalData().blackMids.contains(i['owner']['mid'])) return false;
+    if (RecommendFilter.filterTitle(i['title'])) return false;
+    if (RecommendFilter.filterLikeRatio(i['stat']['like'], i['stat']['view'])) {
+      return false;
+    }
+    if (enableFilter && i['tname'] != null && zoneRegExp.hasMatch(i['tname'])) {
+      return false;
+    }
+    return true;
+  }
+
   // 最热视频
   static Future<LoadingState<List<HotVideoItemModel>>> hotVideoList({
     required int pn,
@@ -220,23 +248,12 @@ abstract final class VideoHttp {
       queryParameters: {'pn': pn, 'ps': ps},
     );
     if (res.data['code'] == 0) {
-      List<HotVideoItemModel> list = <HotVideoItemModel>[];
-      for (final i in res.data['data']['list']) {
-        if (!GlobalData().blackMids.contains(i['owner']['mid']) &&
-            !RecommendFilter.filterTitle(i['title']) &&
-            !RecommendFilter.filterLikeRatio(
-              i['stat']['like'],
-              i['stat']['view'],
-            )) {
-          if (enableFilter &&
-              i['tname'] != null &&
-              zoneRegExp.hasMatch(i['tname'])) {
-            continue;
-          }
-          list.add(HotVideoItemModel.fromJson(i));
-        }
-      }
-      return Success(list);
+      return Success(
+        (res.data['data']['list'] as List)
+            .where(_filterHotAndRank)
+            .map((e) => HotVideoItemModel.fromJson(e))
+            .toList(),
+      );
     } else {
       return Error(res.data['message']);
     }
@@ -684,6 +701,11 @@ abstract final class VideoHttp {
     required int act,
     required int reSrc,
   }) async {
+    final isBlock = act == 5;
+    if (isBlock && !Accounts.main.isLogin) {
+      Pref.setBlackMid(mid);
+      return const Success(null);
+    }
     final res = await Request().post(
       Api.relationMod,
       queryParameters: {
@@ -714,7 +736,7 @@ abstract final class VideoHttp {
       ),
     );
     if (res.data['code'] == 0) {
-      if (act == 5) {
+      if (isBlock) {
         // block
         Pref.setBlackMid(mid);
       } else if (act == 6) {
@@ -1274,23 +1296,6 @@ abstract final class VideoHttp {
     return null;
   }
 
-  static bool _canAddRank(Map i) {
-    if (!GlobalData().blackMids.contains(i['owner']['mid']) &&
-        !RecommendFilter.filterTitle(i['title']) &&
-        !RecommendFilter.filterLikeRatio(
-          i['stat']['like'],
-          i['stat']['view'],
-        )) {
-      if (enableFilter &&
-          i['tname'] != null &&
-          zoneRegExp.hasMatch(i['tname'])) {
-        return false;
-      }
-      return true;
-    }
-    return false;
-  }
-
   // 视频排行
   static Future<LoadingState<List<HotVideoItemModel>>> getRankVideoList(
     int rid,
@@ -1300,21 +1305,12 @@ abstract final class VideoHttp {
       queryParameters: await WbiSign.makSign({'rid': rid, 'type': 'all'}),
     );
     if (res.data['code'] == 0) {
-      List<HotVideoItemModel> list = <HotVideoItemModel>[];
-      for (final i in res.data['data']['list']) {
-        if (_canAddRank(i)) {
-          list.add(HotVideoItemModel.fromJson(i));
-          // final List? others = i['others'];
-          // if (others != null && others.isNotEmpty) {
-          //   for (final j in others) {
-          //     if (_canAddRank(j)) {
-          //       list.add(HotVideoItemModel.fromJson(j));
-          //     }
-          //   }
-          // }
-        }
-      }
-      return Success(list);
+      return Success(
+        (res.data['data']['list'] as List)
+            .where(_filterHotAndRank)
+            .map((e) => HotVideoItemModel.fromJson(e))
+            .toList(),
+      );
     } else {
       return Error(res.data['message']);
     }
@@ -1394,6 +1390,13 @@ abstract final class VideoHttp {
     final res = await Request().get(
       Api.popularSeriesList,
       queryParameters: await WbiSign.makSign({'web_location': 333.934}),
+      options: Options(
+        headers: const {
+          'user-agent': BrowserUa.pc,
+          'origin': HttpString.baseUrl,
+          'referer': 'https://www.bilibili.com/v/popular/weekly',
+        },
+      ),
     );
     if (res.data['code'] == 0) {
       return Success(
@@ -1417,6 +1420,13 @@ abstract final class VideoHttp {
         'number': number,
         'web_location': 333.934,
       }),
+      options: Options(
+        headers: {
+          'user-agent': BrowserUa.pc,
+          'origin': HttpString.baseUrl,
+          'referer': 'https://www.bilibili.com/v/popular/weekly?num=$number',
+        },
+      ),
     );
     if (res.data['code'] == 0) {
       return Success(PopularSeriesOneData.fromJson(res.data['data']));
@@ -1435,6 +1445,13 @@ abstract final class VideoHttp {
         'page': page,
         'web_location': 333.934,
       }),
+      options: Options(
+        headers: const {
+          'user-agent': BrowserUa.pc,
+          'origin': HttpString.baseUrl,
+          'referer': 'https://www.bilibili.com/v/popular/history',
+        },
+      ),
     );
     if (res.data['code'] == 0) {
       return Success(PopularPreciousData.fromJson(res.data['data']));

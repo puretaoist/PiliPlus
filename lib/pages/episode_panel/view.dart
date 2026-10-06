@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:PiliPlus/common/assets.dart';
@@ -195,7 +196,7 @@ class _EpisodePanelState extends State<EpisodePanel>
         _safeInitialTabIndex,
         duration: const Duration(milliseconds: 200),
       );
-      Future.delayed(const Duration(milliseconds: 300), jumpToCurrent);
+      Timer(const Duration(milliseconds: 300), jumpToCurrent);
     } else {
       jumpToCurrent();
     }
@@ -716,7 +717,7 @@ class _EpisodePanelState extends State<EpisodePanel>
             final currentTabIndex = _tabIndex;
             if (currentTabIndex != _safeInitialTabIndex) {
               _tabController.animateTo(_safeInitialTabIndex);
-              await Future.delayed(const Duration(milliseconds: 225));
+              await Future.pause(const Duration(milliseconds: 225));
             }
             _itemScrollController[_safeInitialTabIndex].animTo(
               _calcItemOffset(_currentItemIndex),
