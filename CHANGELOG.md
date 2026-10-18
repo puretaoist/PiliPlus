@@ -2,6 +2,41 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-10-18 合并后回归：didPopNext 里 playerInit 空断言
+
+真机日志 `piliplus_log_1792288847632.log`（b314cfe，10/06–10/18，87 条）里
+7 次 `Null check operator`，其中 6 次是老的框架语义崩溃（`object.dart:6271`），
+**第 7 次是上游合并引入的新回归、在我们自己的代码里**：
+
+```
+#0 VideoDetailController.playerInit (pages/video/controller.dart:750)
+#1 _VideoDetailPageVState.didPopNext  (pages/video/view.dart:454)
+```
+
+**根因**：`didPopNext`（从子页面返回）里两条分支不对称 ——
+`preInitPlayer` 那条检查了 `videoUrl != null`，而 `autoPlay` 那条没有。
+若此时 `onReset` 已把 `videoUrl` 置空（换 P / 换视频还没取完流），
+`playerInit` 会走到 `videoSource: videoUrl!` 并抛空断言。
+
+**修复**（`dc1c06f66`）：给 `autoPlay` 分支补同样的判空，
+并保留本地文件播放路径（`isFileSource` 本来就不需要 `videoUrl`）：
+
+```dart
+final hasSource = isFileSource || videoUrl != null;
+if (autoPlay && hasSource) { playerInit(...); }
+```
+
+**同段日志的其余结论**
+
+- `拦下误报的"已看完"` 触发 **9 次**，全部拦下（含 1754s/1743s、
+  3458s/3419s 这类接近片尾的边界，说明只在真到位时才放行）
+- 无 `heartbeat.fail` / `history.*.fail` —— 上游播放器大改（4 次
+  `opt update PlaybackState` 等）**没有破坏上报链路**
+- `grpc 非 0 状态 ... code=-304 msg=木有改动`（弹幕无变化）4 次，属业务码噪音
+- 其余是网络类：`tls handshake -0x4e/-0x7280`、`ffurl_write 0xffffff99`、
+  `Stream ends prematurely`、`Invalid OBU length`（AV1 解码）、DNS 失败
+- `grpc 取流失败 ... 取流超时（10 秒无响应）` 3 次 —— 网络，已正确回退
+
 ## 2026-10 上游同步 2.1.3 → 2.1.6（125 个提交）
 
 合并 `upstream/main`（`4ed5968f3` Release 2.1.6），291 个文件，**只有 2 个文件冲突**。
