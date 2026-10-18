@@ -2,6 +2,67 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-10-18 上游同步 2.1.6 → 2.1.6.2（45 个提交）
+
+**无冲突自动合并**（160 个文件，+4640/−2904），fork 的改动全部存活。
+
+### 环境要求再次上调
+
+| 项 | 之前 | 现在 |
+|---|---|---|
+| Flutter | 3.47.6 | **3.47.7** |
+| material_ui | 1.5.0 | **1.6.0** |
+| cupertino_ui | 1.1.1 | **1.1.2** |
+
+`.fvmrc` 与 `pubspec.yaml` 都已由上游改成 3.47.7。本机 SDK 停在 3.47.6 时
+`flutter pub get` 会直接报 `Because PiliPlus requires Flutter SDK version 3.47.7,
+version solving failed`，进而让 `patch.ps1` 报 `material_ui package not found
+in pub cache`（那个报错是假象，真因是版本解不出来，补丁脚本连包都没下载）。
+
+### 依赖迁移（上游完成，fork 无需跟改）
+
+- **`waterfall_flow` → `flutter_staggered_grid_view ^0.7.0`**：旧包已删除，
+  仓库内无残留引用（`lib/utils/waterfall.dart` 等 9 个文件改用新包）
+- **新增 `nativeapi ^0.5.2`**：用于桌面端窗口/几何计算
+  （`lib/utils/desktop/window_controller.dart`、`calc_window_position.dart`、
+  `lib/pages/main/view.dart`，以及 `lib/plugin/pl_player/controller.dart`
+  的画中画窗口尺寸计算）
+- `tray_manager` 0.5.1 → 0.8.0、`screen_retriever` 0.2.0 → 0.3.0
+- 上游把 `window_manager` 迁移到 `lib/utils/desktop/`（`calc_window_position.dart`
+  从 `lib/utils/` 移入）
+
+### 本机测试跑不了的原因（不是代码问题）
+
+`nativeapi` 带 native build hook（`cnativeapi` + `native_toolchain_c`），
+在 Windows 上需要 MSVC：
+
+```
+No compiler set in BuildInput.cCompiler.cc.
+Found no Visual Studio Locator in [...]
+No Visual Studio installation found with the requested
+Microsoft.VisualStudio.Component.VC.Tools.x86.x64 component.
+Building native assets failed.
+```
+
+本机没装 VS Build Tools → `flutter test` 全部失败。CI 跑 Linux/macOS，不受影响。
+**本机可用的验证只剩 `flutter analyze`**（40 条 info，0 error / 0 warning）。
+
+### fork 逻辑存活核查（逐条确认）
+
+`mobileHeartBeat`（3）、`column_timestamp`、`login_event`、
+`_writePlaybackProgress`（2）、`history.completed.early`、`hasSource`（2）、
+`_initControllers`（3）、`class DiagLog`、`genSession`、`RecLabelAction`（2）
+—— 命中数全部 ≥1，`rcmdVideoListApp` 的实测参数
+（`device: pad` / `mobi_app: android_hd` / `column: 2` / `video_mode: 1` /
+`voice_balance: 1` / `login_event` 冷热启动区分 / `flush` 走参数）逐项核对在位。
+
+### 发布
+
+首次全平台 Release：tag **`v2.1.6.2-fork1`**，一次 `workflow_dispatch` 触发
+`build.yml` 的 5 个 job（Android + 通过 `uses:` 复用的 iOS / macOS /
+Windows x64 / Linux x64）。签名 secret（`SIGN_KEYSTORE_BASE64`、
+`KEYSTORE_PASSWORD`、`KEY_ALIAS`、`KEY_PASSWORD`）已配置。
+
 ## 2026-10-18 合并后回归：didPopNext 里 playerInit 空断言
 
 真机日志 `piliplus_log_1792288847632.log`（b314cfe，10/06–10/18，87 条）里
