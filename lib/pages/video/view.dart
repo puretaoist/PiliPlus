@@ -450,7 +450,14 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     plPlayerController
       ?..addStatusLister(playerListener)
       ..addPositionListener(positionListener);
-    if (videoDetailController.autoPlay) {
+    // 必须有取流结果才能初始化网络播放器：
+    // 从子页面返回（didPopNext）时如果 onReset 已把 videoUrl 置空（换P/换视频
+    // 后还没取完流），直接 playerInit 会在 controller.dart 里 `videoUrl!`
+    // 抛 "Null check operator used on a null value"（真机 2026-10-13 11:07，
+    // 上游合并后引入）。本地文件播放（isFileSource）本来就不需要 videoUrl。
+    final hasSource =
+        videoDetailController.isFileSource || videoDetailController.videoUrl != null;
+    if (videoDetailController.autoPlay && hasSource) {
       videoDetailController.playerInit(
         autoplay: videoDetailController.playerStatus?.isPlaying ?? false,
       );
