@@ -70,6 +70,25 @@
     `[0, freshLength)` 这段新数据，拼进来的旧内容一个字都不能动，否则标记会漂移。
     有单元测试守护 `test/utils/rcmd_resort_test.dart`（游标与标记的边界另有
     独立验证脚本，在本机 `bilibili/` 目录下，不随仓库分发）。
+11. **「不感兴趣」的 `reason_id` 才是开关，`code=0` 不代表生效**
+    （2026-10-21 修 P2 时实测确认）：`/x/feed/dislike` 无论带不带 `reason_id`
+    都返回 `code=0`，但效果天差地别 —— 带官方下发的 UP主级理由（`id=4`，
+    即 `three_point_v2` 里的「UP主:xxx」）时，后续 **3200 条曝光中该 UP 出现
+    0 次**（对照 42 次=1.31%，4/4 个 buvid 方向一致）；**不带理由时抑制率只有
+    22%，落在噪声范围内**，等于没投。
+    另外三件事一起记住：
+    - **不要再给 `feedDislike` 加 accessKey 门槛**。官方自己就是可选的
+      （`pegasus/request/f.java`：`if (strA != null) map.put("access_key", strA)`），
+      且 `AccountManager.onRequest` 已经会「有就自动附加+签名，没有就只补
+      appkey/ts/sign」。业务层再拦一道，会让「账号模式里没给 recommend 指定
+      账号」的用户（落到 `AnonymousAccount`，`accessKey` 恒为 null）永远点不了
+      不感兴趣 —— 这正是 P2 要修的 bug。
+    - **`mid`/`rid`/`tag_id` 只在 `> 0` 时才下发**（官方 `D.b(...)` 就是这么写的）。
+      传 `0` 不是"没有"，是"明确告诉了服务端一个不存在的 UP"。
+    - **`old_pegasus=1` 必带**：缺了接口照样 `code=0`，但归因会退化。
+    参数构造在 `VideoHttp.buildFeedDislikeParams`（纯函数），由
+    `test/http/feed_dislike_test.dart` 守护；投放效果的实测脚本在本机
+    `bilibili/feed_dislike_final.py`。
 
 ## 上报参数的权威来源（勿凭记忆修改）
 

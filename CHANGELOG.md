@@ -2,6 +2,61 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-10-21 修复：「不感兴趣」未登录/未指定推荐账号时点不了
+
+**现象**：首页卡片「我不想看」点任何理由都提示「请退出账号后重新登录」，
+即使已经登录。原因是 `lib/http/video.dart` 里有一道硬门槛：
+
+```dart
+if (Accounts.get(AccountType.recommend).accessKey.isNullOrEmpty) {
+  return const Error('请退出账号后重新登录');
+}
+```
+
+`AccountType.recommend` 只有在「账号模式」里显式指定过推荐账号才有值，
+否则落到 `AnonymousAccount`（`accessKey` 恒为 `null`）→ 永远提交不了。
+这道门槛来自上游 `8daf603fd`，不是本 fork 引入的。
+
+**为什么可以放心去掉**：
+1. 官方 App 自己就是可选的 —— `pegasus/request/f.java` 里
+   `if (strA != null) map.put("access_key", strA);`，缺失照样发请求；
+2. `AccountManager.onRequest` 已经统一处理：**有 accessKey 就附加并签名，
+   没有就只补 `appkey`/`ts`/`sign`**，业务层再拦一道纯属重复；
+3. 实测匿名（无 `access_key`）+ 完整参数集返回 `code=0`；
+4. 签名与否都验证过：不签名/签名、有无 `access_key`、假 `access_key`
+   四种组合全部 `code=0`，所以去掉门槛不会引入 -400。
+
+**同时修掉的两个隐患**（都会导致「提交成功但反馈没用」）：
+
+- **`old_pegasus=1` 之前没带**。官方 `pegasus/api/D.java` 的 `b(...)` 必带此项，
+  缺失时接口仍返回 `code=0`，但归因会退化。
+- **`mid`/`rid`/`tag_id` 之前无条件下发**（`rid` 传的还是 `item.aid`，官方取
+  `args.rid`）。官方写法是**仅当 `> 0` 才带** —— 传 `0` 等于明确告诉服务端
+  「这个 UP 不存在」，比不传更糟。
+
+**关键发现：`reason_id` 才是反馈是否生效的开关**
+
+这一点做了严格的对照实验（同 buvid、同页面、随机对半分 UP，投一半留一半，
+各 4 个 buvid × 40 页）：
+
+| 投喂内容 | 投喂组命中 | 对照组命中 | 结论 |
+|---|---|---|---|
+| `reason_id=4`（UP主级） | **0 / 3200 (0.00%)** | 42 / 3200 (1.31%) | 完全抑制，4/4 buvid 一致 |
+| 不带 `reason_id` | 31 / 2720 (1.14%) | 40 / 2720 (1.47%) | 22%，噪声范围，等于没投 |
+
+也就是说：**服务端对「不说话的不感兴趣」只是收下不办**。这正好是
+`docs/regression-checklist.md` 里「`code=0` ≠ 写入成功」那条陷阱的又一个实例。
+UI 侧本来就会传 `reason_id`（取自 `three_point_v2`），所以这条不需要改代码，
+但记了诊断：万一调用方漏传，会写一条 `dislike.noReason`，**不阻断请求**。
+
+**改动**：抽出纯函数 `VideoHttp.buildFeedDislikeParams(...)`（便于单测断言参数），
+`feedDislike` / `feedDislikeCancel` 共用；删除两处 accessKey 门槛；
+失败时补 `dislike.fail` / `dislike.cancelFail` 诊断日志。
+
+**验证**：`flutter analyze` 40 issues / **0 error 0 warning**（与改动前一致，
+新增代码零提示）；新增 `test/http/feed_dislike_test.dart` 5 个用例守护参数构造
+（含「不下发 `access_key`」「`mid`/`rid`/`tag_id` 为 0 时不下发」）。
+
 ## 2026-10-21 新增：首页推荐重排（设置 → 推荐 → 推荐重排）
 
 **为什么做**：实测发现服务端下发的首页主要是**热门库存池，不是画像**。

@@ -581,7 +581,61 @@ abstract final class VideoHttp {
     }
   }
 
+  /// 「不感兴趣」请求体。
+  ///
+  /// 抽成纯函数是为了能在单测里断言参数，而不必真的发请求。
+  ///
+  /// 参数来源已与官方 App 逐项对齐（`pegasus/api/D.java` 的 `b(...)` 与
+  /// `pegasus/request/f.java` 的 `a(...)`）：
+  /// - `id` 用卡片的 `param`，`goto` 用 `card_goto`
+  /// - `mid`/`rid`/`tag_id` 官方取自 `args.upId`/`args.rid`/`args.tid`，
+  ///   且**仅当 > 0 时**才下发（这里同样只在非空非 0 时带上）
+  /// - `old_pegasus=1` 是官方必带项，缺了不报错但归因会退化
+  /// - 时间戳等由 [AccountManager] 拦截器统一注入，不在这里拼
+  static Map<String, dynamic> buildFeedDislikeParams({
+    required String goto,
+    required int id,
+    int? reasonId,
+    int? feedbackId,
+    int? mid,
+    int? rid,
+    int? tagId,
+    String? trackId,
+    String? reportData,
+  }) {
+    return {
+      'goto': goto,
+      'id': id,
+      'reason_id': ?reasonId,
+      'feedback_id': ?feedbackId,
+      // 官方 app 会带上这些定位字段，缺了服务端可能无法准确归因到 UP/分区
+      if (mid != null && mid > 0) 'mid': mid,
+      if (rid != null && rid > 0) 'rid': rid,
+      if (tagId != null && tagId > 0) 'tag_id': tagId,
+      if (trackId != null && trackId.isNotEmpty) 'track_id': trackId,
+      if (reportData != null && reportData.isNotEmpty) 'report_data': reportData,
+      'is_light_panel': 'false',
+      'spmid': 'tm.recommend.0.0',
+      'from_spmid': 'tm.recommend.0.0',
+      // 官方必带；实测缺失时接口仍返回 code=0，但反馈不生效
+      'old_pegasus': '1',
+      'build': 1,
+      'mobi_app': 'android',
+    };
+  }
+
   // 推送不感兴趣反馈
+  //
+  // 这里**不再**要求 recommend 账号的 accessKey。
+  // 依据：
+  // 1. 官方 App 自己就是可选的 —— `pegasus/request/f.java` 里
+  //    `if (strA != null) map.put("access_key", strA);`，缺失照样发请求；
+  // 2. [AccountManager.onRequest] 会在有 accessKey 时自动附加并签名，
+  //    没有时也会补 appkey/ts/sign，所以业务层再拦一道是重复且错误的；
+  // 3. 实测匿名（无 access_key）+ 完整参数集返回 code=0，且反馈真实生效
+  //    （详见 docs/regression-checklist.md 陷阱 11）；
+  // 4. 原来的门槛导致「未在账号模式里指定 recommend 账号」的用户
+  //    永远点不了不感兴趣 —— 落到 AnonymousAccount 时 accessKey 恒为 null。
   static Future<LoadingState<void>> feedDislike({
     required String goto,
     required int id,
@@ -593,33 +647,36 @@ abstract final class VideoHttp {
     String? trackId,
     String? reportData,
   }) async {
-    if (Accounts.get(AccountType.recommend).accessKey.isNullOrEmpty) {
-      return const Error('请退出账号后重新登录');
-    }
     assert((reasonId != null) ^ (feedbackId != null));
+    // reason_id 决定反馈是否被服务端采纳：
+    // 实测传官方的 UP主级 reason_id（4）时，后续 3200 条曝光中该 UP 出现 0 次，
+    // 而不传理由时抑制率只有 22%（噪声范围）。缺失理由属于调用方 bug，
+    // 记一条诊断但**不阻断**请求 —— 服务端仍会接受，只是效果打折。
+    if (reasonId == null && feedbackId == null) {
+      DiagLog.log('dislike.noReason', 'feedDislike 未带 reason_id/feedback_id，反馈可能不生效');
+    }
     final res = await Request().get(
       Api.feedDislike,
-      queryParameters: {
-        'goto': goto,
-        'id': id,
-        'reason_id': ?reasonId,
-        'feedback_id': ?feedbackId,
-        // 官方 app 会带上这些定位字段，缺了服务端可能无法准确归因到 UP/分区
-        'mid': ?mid,
-        'rid': ?rid,
-        'tag_id': ?tagId,
-        'track_id': ?trackId,
-        'report_data': ?reportData,
-        'is_light_panel': 'false',
-        'spmid': 'tm.recommend.0.0',
-        'from_spmid': 'tm.recommend.0.0',
-        'build': 1,
-        'mobi_app': 'android',
-      },
+      queryParameters: buildFeedDislikeParams(
+        goto: goto,
+        id: id,
+        reasonId: reasonId,
+        feedbackId: feedbackId,
+        mid: mid,
+        rid: rid,
+        tagId: tagId,
+        trackId: trackId,
+        reportData: reportData,
+      ),
     );
     if (res.data['code'] == 0) {
       return const Success(null);
     } else {
+      DiagLog.log(
+        'dislike.fail',
+        'feedDislike 失败 code=${res.data['code']} msg=${res.data['message']} '
+            'reason=${reasonId ?? feedbackId}',
+      );
       return Error(res.data['message']);
     }
   }
@@ -636,31 +693,29 @@ abstract final class VideoHttp {
     String? trackId,
     String? reportData,
   }) async {
-    if (Accounts.get(AccountType.recommend).accessKey.isNullOrEmpty) {
-      return const Error('请退出账号后重新登录');
-    }
+    // 与 feedDislike 同理：不再要求 recommend 账号的 accessKey。
+    // 撤销走同一个 app 域，[AccountManager] 会在有 accessKey 时自动附加。
     final res = await Request().get(
       Api.feedDislikeCancel,
-      queryParameters: {
-        'goto': goto,
-        'id': id,
-        'reason_id': ?reasonId,
-        'feedback_id': ?feedbackId,
-        'mid': ?mid,
-        'rid': ?rid,
-        'tag_id': ?tagId,
-        'track_id': ?trackId,
-        'report_data': ?reportData,
-        'is_light_panel': 'false',
-        'spmid': 'tm.recommend.0.0',
-        'from_spmid': 'tm.recommend.0.0',
-        'build': 1,
-        'mobi_app': 'android',
-      },
+      queryParameters: buildFeedDislikeParams(
+        goto: goto,
+        id: id,
+        reasonId: reasonId,
+        feedbackId: feedbackId,
+        mid: mid,
+        rid: rid,
+        tagId: tagId,
+        trackId: trackId,
+        reportData: reportData,
+      ),
     );
     if (res.data['code'] == 0) {
       return const Success(null);
     } else {
+      DiagLog.log(
+        'dislike.cancelFail',
+        'feedDislikeCancel 失败 code=${res.data['code']} msg=${res.data['message']}',
+      );
       return Error(res.data['message']);
     }
   }
