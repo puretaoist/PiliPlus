@@ -60,6 +60,15 @@
    附带一条：**兜底链会掩盖"主通道根本没被调用"**。保留兜底时，兜底被触发
    必须记一条日志（`DiagLog.log('xxx.fallback', ...)`），否则日志里看起来一切
    正常，实际问题早就存在了。
+10. **在客户端重排首页前，必须先固定续推游标**（2026-10-21 做"推荐重排"时踩到）：
+    app 推荐接口的 `idx` 在**同一页内递减**，所以 `RcmdController._cursor()` 靠
+    `list.first.idx`（刷新）/ `list.last.idx`（加载更多）取值。任何排序操作之后
+    再读首/末条，拿到的就不是原始极值 → 游标错 → 跳页或反复拿到同一批内容，
+    而且**服务端不会报错**，只是内容重复。正确做法：在 `handleListResponse`
+    开头（任何排序/拼接之前）把极值缓存下来（`_idxNewest`/`_idxOldest`）。
+    同理 `lastRefreshAt`（「上次看到这里」）是**位置索引**：重排只能作用于
+    `[0, freshLength)` 这段新数据，拼进来的旧内容一个字都不能动，否则标记会漂移。
+    有验证脚本 `bilibili/verify_rcmd_cursor.dart`、`verify_rcmd_marker.dart`。
 
 ## 上报参数的权威来源（勿凭记忆修改）
 

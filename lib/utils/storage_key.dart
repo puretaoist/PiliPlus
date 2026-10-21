@@ -54,6 +54,7 @@ abstract final class SettingBoxKey {
       minPlayForRcmd = 'minPlayForRcmd',
       minLikeRatioForRecommend = 'minLikeRatioForRecommend',
       exemptFilterForFollowed = 'exemptFilterForFollowed',
+      rcmdResort = 'rcmdResort',
       banWordForRecommend = 'banWordForRecommend',
       applyFilterToRelatedVideos = 'applyFilterToRelatedVideos',
       autoUpdate = 'autoUpdate',

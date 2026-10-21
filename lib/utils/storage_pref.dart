@@ -653,6 +653,10 @@ abstract final class Pref {
   static bool get exemptFilterForFollowed =>
       _setting.get(SettingBoxKey.exemptFilterForFollowed, defaultValue: true);
 
+  /// 首页推荐在客户端重排（默认关，见 RecommendResort）
+  static bool get rcmdResort =>
+      _setting.get(SettingBoxKey.rcmdResort, defaultValue: false);
+
   static bool get applyFilterToRelatedVideos => _setting.get(
     SettingBoxKey.applyFilterToRelatedVideos,
     defaultValue: true,

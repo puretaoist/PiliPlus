@@ -5,6 +5,7 @@ import 'package:PiliPlus/pages/recommend_label/view.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:PiliPlus/utils/recommend_filter.dart';
+import 'package:PiliPlus/utils/rcmd_resort.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:flutter/foundation.dart';
@@ -113,6 +114,16 @@ List<SettingsModel> get recommendSettings => [
     setKey: SettingBoxKey.exemptFilterForFollowed,
     defaultVal: true,
     onChanged: (value) => RecommendFilter.exemptFilterForFollowed = value,
+  ),
+  SwitchModel(
+    title: '推荐重排',
+    subtitle: '把已关注的UP、没看过的内容往前排，已看完的往后排。'
+        '服务端首页主要是热门池，这一步用本地已有信号重新排序；'
+        '只调整顺序，不删内容',
+    leading: const Icon(Icons.swap_vert),
+    setKey: SettingBoxKey.rcmdResort,
+    defaultVal: false,
+    onChanged: (value) => RcmdResort.enabled = value,
   ),
   SwitchModel(
     title: '过滤器也应用于详情页相关视频',
