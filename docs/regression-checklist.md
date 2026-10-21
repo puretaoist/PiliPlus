@@ -68,7 +68,8 @@
     开头（任何排序/拼接之前）把极值缓存下来（`_idxNewest`/`_idxOldest`）。
     同理 `lastRefreshAt`（「上次看到这里」）是**位置索引**：重排只能作用于
     `[0, freshLength)` 这段新数据，拼进来的旧内容一个字都不能动，否则标记会漂移。
-    有验证脚本 `bilibili/verify_rcmd_cursor.dart`、`verify_rcmd_marker.dart`。
+    有单元测试守护 `test/utils/rcmd_resort_test.dart`（游标与标记的边界另有
+    独立验证脚本，在本机 `bilibili/` 目录下，不随仓库分发）。
 
 ## 上报参数的权威来源（勿凭记忆修改）
 

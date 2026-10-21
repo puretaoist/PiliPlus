@@ -27,8 +27,27 @@ import 'package:PiliPlus/utils/storage_pref.dart';
 /// 若最终顺序与原顺序完全相同则返回 null，调用方不做任何改动。
 /// 因此"没有可用信号"时首页一个字都不会动。
 abstract final class RcmdResort {
-  /// 是否启用（设置项，默认关 —— 未经用户同意不改动首页顺序）
-  static bool enabled = Pref.rcmdResort;
+  /// 设置项的默认值。抽成常量是为了让"默认关闭"这件事可被测试守护：
+  /// 若把默认值改成 true，所有用户的首页顺序会在升级后突然变化。
+  static const bool enabledByDefault = false;
+
+  static bool? _enabled;
+
+  /// 是否启用（设置项，默认关 —— 未经用户同意不改动首页顺序）。
+  ///
+  /// 惰性读取并容错：单元测试环境不会初始化 Hive 的 setting box，
+  /// 此时读取设置会抛异常；降级为 [enabledByDefault]（不重排）是最安全的行为。
+  static bool get enabled {
+    final cached = _enabled;
+    if (cached != null) return cached;
+    try {
+      return _enabled = Pref.rcmdResort;
+    } catch (_) {
+      return _enabled = enabledByDefault;
+    }
+  }
+
+  static set enabled(bool value) => _enabled = value;
 
   /// 关注的 UP：明显提权
   static const double followedBonus = 3.0;

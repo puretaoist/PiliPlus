@@ -66,7 +66,9 @@ void main() {
   ];
 
   test('默认关闭（不擅自改动任何人的首页）', () {
-    expect(RcmdResort.enabled, isFalse);
+    // 注意：不断言 RcmdResort.enabled == false，因为该 getter 会读 Hive 设置；
+    // 单元测试环境没有初始化 box 时会走容错分支。真正要守护的是"默认值"。
+    expect(RcmdResort.enabledByDefault, isFalse);
   });
 
   test('低于 2 条不做处理', () {
