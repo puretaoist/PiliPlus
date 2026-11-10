@@ -2,6 +2,45 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-11-10 上游同步 2.1.6.2 → 2.2.0.2（141 个提交）
+
+合并上游 2.2.0 / 2.2.0.1 / 2.2.0.2，fork 侧 80 个提交全部保留。
+
+**5 处冲突按「谁更合适用谁」处理**
+
+- `.gitignore`：采用上游 `test*` + `!/test/` 豁免写法，保留 fork 的历史教训注释与
+  `.flutter_tool_state`。
+- `episode_panel/view.dart`：**采用上游**。上游把这页重写成 `_tabIndex()` 函数 +
+  `_syncEpisodes` 动态取数，不再按列表长度持有控制器；fork 原先的「长度变化重建
+  控制器 + 下标 clamp」在结构上已不需要（硬合并会破坏上游新逻辑）。
+- `rcmd/controller.dart`：**综合**。上游的三路来源 switch（app/desktop/web）保留，
+  app 分支注入 fork 的游标（`_cursor()` + `_idxNewest/_idxOldest` 冻结），
+  desktop 用上游的 `ps=30`。
+- `recommend_settings.dart`：合并双方 import（重排开关 + Storage）。
+- `video/controller.dart`：**综合**。采用上游 `findTargetVideo` 元组重构，
+  fork 的推荐归因 `reportContext` 插在其后，画质取元组的 `targetQuality`。
+
+**适配上游重构的 API**
+
+- `LoginHttp.buvid` / `LoginUtils.buvid` 已从上游移除 → 改用 `AnonymousAccount().buvid`
+  （`player_unite.dart`、`recommend_label.dart`、`video.dart`）。
+- 画质模型改为 `part of 'base_quality.dart'` → 只能 import `base_quality.dart`。
+
+**依赖与补丁**
+
+- Flutter 3.47.7 → **3.47.9**（pubspec 约束）。
+- `canvas_danmaku` ref `275046d8` → `435063d0`，`danmaku_throttle.patch` 已按新版本
+  重新生成（逻辑不变，仅行号）。**注意**：本地 pub cache 会同时残留多个 ref 目录，
+  `patch.ps1` 已改为按 `pubspec.lock` 的 `resolved-ref` 精确匹配，不再用
+  `Select-Object -Last 1`（那会在多版本缓存时给错误副本打补丁）。
+- 新增依赖 `nativeapi`（screen_retriever/tray_manager/window_manager）→ host 端
+  code assets 需要 MSVC 才能 `flutter test`；Android 构建走 NDK，不受影响。
+
+**验证**
+
+- `flutter analyze`：0 error（仅 info 级 lint）。
+- `flutter test`：本机因缺 MSVC（nativeapi host 构建）无法运行，未在本机取得全绿结论。
+
 ## 2026-10-21 修复：「不感兴趣」未登录/未指定推荐账号时点不了
 
 **现象**：首页卡片「我不想看」点任何理由都提示「请退出账号后重新登录」，

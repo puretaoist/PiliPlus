@@ -1,16 +1,22 @@
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
+import 'package:PiliPlus/models/common/rcmd_source.dart';
 import 'package:PiliPlus/models/home/rcmd/result.dart';
 import 'package:PiliPlus/models/model_rec_video_item.dart';
+import 'package:PiliPlus/pages/common/common_controller.dart'
+    show RefreshImplMixin;
 import 'package:PiliPlus/pages/common/common_list_controller.dart';
 import 'package:PiliPlus/utils/diag_log.dart';
+import 'package:PiliPlus/utils/extension/scroll_controller_ext.dart';
 import 'package:PiliPlus/utils/rcmd_resort.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 
-class RcmdController extends CommonListController {
+class RcmdController extends CommonListController with RefreshImplMixin {
   late bool enableSaveLastData = Pref.enableSaveLastData;
-  final bool appRcmd = Pref.appRcmd;
+
+  /// 可在设置页切换后立即生效，无需重启
+  RcmdSource rcmdSource = Pref.rcmdSource;
 
   int? lastRefreshAt;
   late bool savedRcmdTip = Pref.savedRcmdTip;
@@ -46,7 +52,7 @@ class RcmdController extends CommonListController {
 
   // 刷新取列表首条的 idx、加载更多取末条的 idx
   int _cursor({required bool first}) {
-    if (appRcmd) {
+    if (rcmdSource == RcmdSource.app) {
       final cached = first ? _idxNewest : _idxOldest;
       if (cached != null) return cached;
     }
@@ -60,7 +66,7 @@ class RcmdController extends CommonListController {
 
   /// 记录本批数据的原始 idx 极值（重排前调用）
   void _cacheCursor(List dataList) {
-    if (!appRcmd) return;
+    if (rcmdSource != RcmdSource.app) return;
     int? maxIdx;
     int? minIdx;
     for (final e in dataList) {
@@ -82,14 +88,21 @@ class RcmdController extends CommonListController {
 
   @override
   Future<LoadingState> customGetData() {
-    if (!appRcmd) {
-      return VideoHttp.rcmdVideoList(freshIdx: page, ps: 20);
-    }
-    return VideoHttp.rcmdVideoListApp(
-      idx: _cursor(first: _isRefresh),
-      flush: _flush,
-      pull: _isRefresh,
-    );
+    return switch (rcmdSource) {
+      // app 接口靠 idx/flush/pull 续推，重排后必须用缓存的原始极值
+      RcmdSource.app => VideoHttp.rcmdVideoListApp(
+        idx: _cursor(first: _isRefresh),
+        flush: _flush,
+        pull: _isRefresh,
+      ),
+      // 桌面端：与官方 Windows 客户端一致，每次请求 30 条
+      RcmdSource.desktop => VideoHttp.rcmdVideoList(
+        freshIdx: page,
+        ps: 30,
+        desktop: true,
+      ),
+      RcmdSource.web => VideoHttp.rcmdVideoList(freshIdx: page, ps: 20),
+    };
   }
 
   @override
@@ -180,5 +193,10 @@ class RcmdController extends CommonListController {
     isEnd = false;
     _flush = 0;
     return queryData();
+  }
+
+  void toTopAndRefresh() {
+    scrollController.jumpToTop();
+    showRefresh();
   }
 }

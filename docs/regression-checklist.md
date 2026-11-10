@@ -89,6 +89,20 @@
     参数构造在 `VideoHttp.buildFeedDislikeParams`（纯函数），由
     `test/http/feed_dislike_test.dart` 守护；投放效果的实测脚本在本机
     `bilibili/feed_dislike_final.py`。
+12. **本地 pub cache 会残留多个 `canvas_danmaku-*` 目录**（2026-11-10 上游同步时踩到）：
+    上游把 ref 从 `275046d8` 升到 `435063d0`，旧目录仍在。`patch.ps1` 原来用
+    `Select-Object -Last 1` 挑目录，结果给错误的旧副本打了补丁，随后
+    `danmaku_throttle.patch` 报 `patch does not apply`（真依赖那份没打上）。
+    现在脚本按 `pubspec.lock` 的 `resolved-ref` 精确匹配。
+    **排查口诀**：补丁失败先 `ls ~/.pub-cache/git/canvas_danmaku-*` 看有几个，
+    再对照 `pubspec.lock` 的 `resolved-ref` 确认打的是哪一个。
+13. **`flutter test` 在 Windows 本机可能因 `nativeapi` 无法运行**（2026-11-10 起）：
+    上游 2.2.0 引入 `nativeapi`（`screen_retriever`/`tray_manager`/`window_manager`），
+    其 host 端 code assets 构建需要 MSVC（`cl.exe` + Windows SDK）。本机只有
+    VS2022 的空壳（无 C++ 工作负载）时，`flutter test` 会在
+    `cnativeapi/hook/build.dart` 处报 `No compiler configured on host 'windows_x64'`。
+    这不是代码问题；Android/CI 构建不受影响（走 NDK/系统 clang）。
+    没有 MSVC 的环境只能以 `flutter analyze` 0 error 为准，test 结论留待 CI。
 
 ## 上报参数的权威来源（勿凭记忆修改）
 

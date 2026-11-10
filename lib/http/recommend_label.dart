@@ -1,10 +1,10 @@
 import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
-import 'package:PiliPlus/http/login.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/models_new/recommend_label/recommend_label.dart';
 import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/diag_log.dart';
 import 'package:dio/dio.dart';
 
@@ -61,7 +61,7 @@ abstract final class RecommendLabelHttp {
 
   static Options get _options => Options(
     headers: {
-      'buvid': LoginHttp.buvid,
+      'buvid': AnonymousAccount().buvid,
       'env': 'prod',
       'app-key': 'android',
       'user-agent': Constants.userAgentApp,

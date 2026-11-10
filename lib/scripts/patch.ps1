@@ -2,8 +2,10 @@ param(
     [string]$platform = ""
 )
 
-git config --global user.name "ci"
-git config --global user.email "example@example.com"
+$env:GIT_AUTHOR_NAME = "ci"
+$env:GIT_AUTHOR_EMAIL = "example@example.com"
+$env:GIT_COMMITTER_NAME = "ci"
+$env:GIT_COMMITTER_EMAIL = "example@example.com"
 
 # TODO: remove
 # https://github.com/flutter/flutter/issues/182281
@@ -319,8 +321,16 @@ foreach ($patch in $patches_cupertino) {
 # throttle canvas_danmaku repaint to 60fps (power optimization on high-refresh screens)
 $DanmakuThrottlePatch = "lib/scripts/danmaku_throttle.patch"
 
+# 本地 pub cache 可能残留多个版本的 canvas_danmaku（上游升级过一次 ref，
+# 旧目录还在），按 pubspec.lock 里的 resolved-ref 精确匹配，避免给错误副本打补丁
+$DanmakuRef = $null
+if ((Get-Content "$env:GITHUB_WORKSPACE/pubspec.lock" -Raw) -match 'canvas_danmaku:[\s\S]*?resolved-ref:\s*"([^"]+)"') {
+    $DanmakuRef = $Matches[1]
+}
+
 $DanmakuDir = Get-ChildItem "$PubCacheDir/git" -Directory |
     Where-Object { $_.Name -like "canvas_danmaku-*" } |
+    Where-Object { -not $DanmakuRef -or $_.Name -eq "canvas_danmaku-$DanmakuRef" } |
     Select-Object -Last 1
 
 if (-not $DanmakuDir) {

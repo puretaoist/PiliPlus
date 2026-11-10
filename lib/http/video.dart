@@ -11,7 +11,6 @@ import 'package:PiliPlus/utils/diag_log.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
-import 'package:PiliPlus/http/login.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/models/common/video/video_type.dart';
 import 'package:PiliPlus/models/common/video_report_context.dart';
@@ -34,6 +33,7 @@ import 'package:PiliPlus/models_new/video/video_play_info/data.dart';
 import 'package:PiliPlus/models_new/video/video_relation/data.dart';
 import 'package:PiliPlus/models_new/video/video_shot/data.dart';
 import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
 import 'package:PiliPlus/utils/global_data.dart';
 import 'package:PiliPlus/utils/id_utils.dart';
@@ -69,13 +69,33 @@ abstract final class VideoHttp {
   }
 
   // 首页推荐视频
+  //
+  // [desktop] 为 true 时沿用同一个公开网页接口，改用哔哩哔哩官方 Windows
+  // 客户端（Electron 版）首页实际发送的参数组合：plat=1、feed_version=V1、
+  // fresh_type 表示操作类型（0 初次 / 3 刷新 / 4 加载更多）、x_num 与 y_num
+  // 为可视网格的行列数、pc_wx_install 等标记。参数取自该客户端自身渲染层的
+  // 请求代码，不涉及私有接口与设备指纹。
   static Future<LoadingState<List<RcmdVideoItemModel>>> rcmdVideoList({
     required int ps,
     required int freshIdx,
+    bool desktop = false,
   }) async {
-    final res = await Request().get(
-      Api.recommendListWeb,
-      queryParameters: await WbiSign.makSign({
+    final Map<String, Object> params;
+    if (desktop) {
+      params = <String, Object>{
+        'plat': 1,
+        'feed_version': 'V1',
+        'ps': ps,
+        'fresh_idx': freshIdx,
+        // 0 初次进入、3 下拉刷新、4 加载更多
+        'fresh_type': freshIdx == 0 ? 0 : 4,
+        'x_num': 3,
+        'y_num': 4,
+        'pc_wx_install': 0,
+        'pc_wx_gm_install': 0,
+      };
+    } else {
+      params = <String, Object>{
         'version': 1,
         'feed_version': 'V8',
         'homepage_ver': 1,
@@ -83,7 +103,11 @@ abstract final class VideoHttp {
         'fresh_idx': freshIdx,
         'brush': freshIdx,
         'fresh_type': 4,
-      }),
+      };
+    }
+    final res = await Request().get(
+      Api.recommendListWeb,
+      queryParameters: await WbiSign.makSign(params),
     );
     if (res.data['code'] == 0) {
       List<RcmdVideoItemModel> list = <RcmdVideoItemModel>[];
@@ -182,7 +206,7 @@ abstract final class VideoHttp {
       queryParameters: params,
       options: Options(
         headers: {
-          'buvid': LoginHttp.buvid,
+          'buvid': Accounts.get(.recommend).buvid,
           'fp_local': '1111111111111111111111111111111111111111111111111111111111111111',
           'fp_remote': '1111111111111111111111111111111111111111111111111111111111111111',
           'session_id': '11111111',
@@ -272,76 +296,45 @@ abstract final class VideoHttp {
     required VideoType videoType,
     String? language,
     bool voiceBalance = false,
+    bool fallback = false,
   }) async {
-    final Map<String, dynamic> params;
-    Map<String, dynamic>? data;
-
-    switch (videoType) {
-      case .ugc || .pugv:
-        final dmImgStr = Utils.base64EncodeRandomString(16, 64);
-        final dmCoverImgStr = Utils.base64EncodeRandomString(32, 128);
-        params = await WbiSign.makSign({
-          'avid': ?avid,
-          'bvid': ?bvid,
-          'ep_id': ?epid,
-          'season_id': ?seasonId,
-          'cid': cid,
-          'qn': qn,
-          // 获取所有格式的视频
-          'fnval': 4048,
-          'fourk': 1,
-          'fnver': 0,
-          'voice_balance': voiceBalance ? 1 : 0,
-          'gaia_source': 'pre-load',
-          'isGaiaAvoided': true,
-          'web_location': 1315873,
-          if (videoType == .pugv) ...const {
-            'biz_type': 'pugv',
-            'scene': 'normal',
-            'from_client': 'BROWSER',
-            'drm_tech_type': 0,
-            'app_id': 100,
-          },
-          // 免登录查看1080p
-          if (tryLook) 'try_look': 1,
-          'dm_img_list': '[]',
-          'dm_img_str': dmImgStr,
-          'dm_cover_img_str': dmCoverImgStr,
-          'dm_img_inter': '{"ds":[],"wh":[0,0,0],"of":[0,0,0]}',
-          'cur_language': ?language,
-        });
-      case .pgc:
-        final video = Accounts.video;
-        params = await WbiSign.makSign({
-          'x-bili-locale-json':
-              '{"c_locale":{"language":"zh-Hans"},"always_translate":false}',
-          'x-bili-device-req-json': '{"platform":"web","device":"pc","spmid":"666.25","mobi_app":"web_cn"}',
-          if (video.isLogin) 'csrf': video.csrf,
-        });
-        data = {
-          "scene": "normal",
-          "video_index": {
-            "bvid": null,
-            "cid": null,
-            "ogv_season_id": seasonId,
-            "ogv_episode_id": epid,
-          },
-          "video_param": {"qn": qn},
-          "player_param": const {
-            "fnver": 0,
-            "fnval": 4048,
-            "drm_tech_type": 0,
-            "app_id": 100,
-          },
-        };
-    }
+    final dmImgStr = Utils.base64EncodeRandomString(16, 64);
+    final dmCoverImgStr = Utils.base64EncodeRandomString(32, 128);
+    final params = await WbiSign.makSign({
+      'avid': ?avid,
+      'bvid': ?bvid,
+      'ep_id': ?epid,
+      'season_id': ?seasonId,
+      'cid': cid,
+      'qn': qn,
+      // 获取所有格式的视频
+      'fnval': 4048,
+      'fourk': 1,
+      'fnver': 0,
+      'voice_balance': voiceBalance ? 1 : 0,
+      'gaia_source': 'pre-load',
+      'isGaiaAvoided': true,
+      'web_location': 1315873,
+      if (videoType != .ugc && !fallback) ...{
+        'biz_type': ?videoType.bizType,
+        'scene': 'normal',
+        'from_client': 'BROWSER',
+        'drm_tech_type': 0,
+        'app_id': 100,
+      },
+      // 免登录查看1080p
+      if (tryLook) 'try_look': 1,
+      'dm_img_list': '[]',
+      'dm_img_str': dmImgStr,
+      'dm_cover_img_str': dmCoverImgStr,
+      'dm_img_inter': '{"ds":[],"wh":[0,0,0],"of":[0,0,0]}',
+      'cur_language': ?language,
+    });
 
     try {
-      final res = await Request().request(
-        videoType.api,
-        data: data,
+      final res = await Request().get(
+        fallback ? videoType.fallbackApi : videoType.api,
         queryParameters: params,
-        options: Options(method: videoType.method),
       );
 
       if (res.data['code'] == 0) {
@@ -350,7 +343,8 @@ abstract final class VideoHttp {
           case .ugc:
             data = PlayUrlModel.fromJson(res.data['data']);
 
-          case .pgc || .pugv:
+          // ogv
+          case .pgc || .pugv when !fallback:
             final result = res.data['data'];
             final videoInfo = result['video_info'];
             if (videoInfo != null) {
@@ -361,12 +355,40 @@ abstract final class VideoHttp {
                     progress['current_watch_progress'] ??
                     progress['current_progress'];
               }
+            } else if (result['arc']?['is_drm'] == true) {
+              return await videoUrl(
+                avid: avid,
+                bvid: bvid,
+                cid: cid,
+                qn: qn,
+                epid: epid,
+                seasonId: seasonId,
+                tryLook: tryLook,
+                videoType: videoType,
+                language: language,
+                voiceBalance: voiceBalance,
+                fallback: true,
+              );
             } else {
               final reason = result['not_playable_reason'];
               if (reason != null) {
                 return Error(_parseVideoErr(reason['code'], reason['message']));
+              } else {
+                return Error(result.toString());
               }
             }
+
+          case .pgc:
+            final result = res.data['result'];
+            data = PlayUrlModel.fromJson(result['video_info'])
+              ..lastPlayTime =
+                  result['play_view_business_info']?['user_status']?['watch_progress']?['current_watch_progress'];
+
+          case .pugv:
+            final result = res.data['data'];
+            data = PlayUrlModel.fromJson(result)
+              ..lastPlayTime =
+                  result['play_view_business_info']?['user_status']?['watch_progress']?['current_watch_progress'];
         }
         return Success(data);
       } else if (epid != null && videoType == .ugc) {
@@ -379,6 +401,9 @@ abstract final class VideoHttp {
           seasonId: seasonId,
           tryLook: tryLook,
           videoType: .pgc,
+          language: language,
+          voiceBalance: voiceBalance,
+          fallback: fallback,
         );
       }
       return Error(_parseVideoErr(res.data['code'], res.data['message']));
@@ -1031,7 +1056,7 @@ abstract final class VideoHttp {
               'app-key': 'android64',
               'bili-http-engine': 'cronet',
               'env': 'prod',
-              'buvid': LoginHttp.buvid,
+              'buvid': AnonymousAccount().buvid,
               'fp_local':
                   '1111111111111111111111111111111111111111111111111111111111111111',
               'fp_remote':
@@ -1216,7 +1241,7 @@ abstract final class VideoHttp {
               'bili-http-engine': 'cronet',
               'env': 'prod',
               // 与心跳一致带上设备身份头：缺 buvid/session_id 时该接口更容易被风控拒
-              'buvid': LoginHttp.buvid,
+              'buvid': AnonymousAccount().buvid,
               'session_id': '11111111',
               'x-bili-aurora-eid': '',
               'x-bili-aurora-zone': '',
@@ -1385,7 +1410,7 @@ abstract final class VideoHttp {
     String subtitleUrl, {
     SubtitleFormat format = .vtt,
   }) async {
-    final res = await Request().get("https:$subtitleUrl");
+    final res = await Request().get(subtitleUrl.http2https);
     if (res.data?['body'] case List list) {
       switch (format) {
         case .json:

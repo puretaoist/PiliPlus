@@ -12,12 +12,11 @@ import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
-import 'package:PiliPlus/models/common/video/audio_quality.dart';
-import 'package:PiliPlus/models/common/video/video_quality.dart';
+import 'package:PiliPlus/models/common/video/base_quality.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/utils/accounts.dart';
+import 'package:PiliPlus/utils/accounts/account.dart';
 import 'package:PiliPlus/utils/diag_log.dart';
-import 'package:PiliPlus/utils/login_utils.dart';
 import 'package:dio/dio.dart' show Options;
 import 'package:fixnum/fixnum.dart';
 
@@ -101,7 +100,7 @@ abstract final class PlayerUniteGrpc {
         return _remoteBuvid = buvid;
       }
     } catch (_) {}
-    return _remoteBuvid = LoginUtils.buvid;
+    return _remoteBuvid = AnonymousAccount().buvid;
   }
 
   /// 官方手机版（android）的客户端身份头。
