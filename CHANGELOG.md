@@ -2,6 +2,44 @@
 
 本文件记录本 fork（puretaoist/PiliPlus）相对上游 bggRGjQaUbCoE/PiliPlus 的改动。
 
+## 2026-11-24 上游同步 2.2.0.2 → 2.2.1（16 个提交）
+
+合并上游 2.2.1。fork 侧的播放上报、首页重排、不感兴趣、内容偏好和诊断日志
+改动均保留。
+
+**冲突处理**
+
+- `lib/pages/video/controller.dart`：上游删除了 `utils/extension/context_ext.dart`，
+  移除对应 import，保留 fork 的 `diag_log.dart`。相关响应式写法改用上游新增的
+  SDK 补丁提供的 `MediaQuery.shortestSideOf` / `MediaQuery.isPortraitOf`。
+
+**适配**
+
+- 上游新增文件 `lib/plugin/linux_webview.dart` 和
+  `lib/pages/video/reply/widgets/reply_threaded_indent_box.dart` 原使用
+  `package:flutter/material.dart`，已按本 fork 规则改为
+  `package:material_ui/material_ui.dart`。
+- 新增 `lib/scripts/media_query.patch`，并加入 `patch.ps1` 的 Android
+  SDK 补丁列表。换 Flutter 版本或重装依赖后必须重新执行完整补丁链。
+
+**依赖**
+
+- `material_ui` 1.10.0 → **1.11.0**，9 个 material_ui 补丁已适配并验证。
+- `image_cropper` 12.x → **13.0.0**。
+- `audio_service_mpris` 改为 git `piliplus` 分支（`9a60ad5`）。
+- Flutter 版本保持 **3.47.9**。
+
+**验证**
+
+- 在干净的临时 SDK 副本执行 `patch.ps1 android`：26 组 SDK 补丁（含
+  `media_query.patch`）全部应用，material_ui 9 个补丁全部应用；丹幕补丁按
+  `pubspec.lock` 的 `resolved-ref` 精确命中。
+- `flutter analyze --no-pub --no-fatal-infos`：**0 error / 0 warning / 40 info**。
+- `flutter pub get` 依赖解析成功，但本机因 Windows 开发者模式未开启，停在插件
+  symlink 步骤；`flutter test` 仍受 `nativeapi` / MSVC 限制，未在本机运行。
+- 播放上报链路尚未在真机验证。合并后仍需按回归清单播放 1 分钟视频、退出并回看
+  历史页确认进度推进。
+
 ## 2026-11-10 上游同步 2.1.6.2 → 2.2.0.2（141 个提交）
 
 合并上游 2.2.0 / 2.2.0.1 / 2.2.0.2，fork 侧 80 个提交全部保留。
